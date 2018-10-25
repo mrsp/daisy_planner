@@ -17,6 +17,7 @@ These instructions will get you a copy of the project up and running on your loc
 * git clone https://github.com/mrsp/daisy_planner.git 
 * cd daisy_planner/daisy_plot
 * git clone https://github.com/dstahlke/gnuplot-iostream.git
+* cd ../../..
 * catkin_make -DCMAKE_BUILD_TYPE=Release  --pkg timestorm_msg
 * catkin_make -DCMAKE_BUILD_TYPE=Release 
 * If you are using catkin tools run: catkin build  --cmake-args -DCMAKE_BUILD_TYPE=Release 
