@@ -1,5 +1,4 @@
-#README
-
+# README
 Daisy Planner - Planning Time Informed Multi-agent Interactions*
 
 The code is open-source (BSD License). Please note that this work is an on-going research and thus some parts are not fully developed yet. Furthermore, the code will be subject to changes in the future which could include greater re-factoring.
