@@ -21,4 +21,5 @@ These instructions will get you a copy of the project up and running on your loc
 ## ROS Examples
 * roscore
 * rosrun daisy_planner daisy_planner
+* rosrun daisy_plot daisy_plot
 ![valk](img/valk.png)
