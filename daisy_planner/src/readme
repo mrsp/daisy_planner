@@ -1,0 +1,33 @@
+
+to compile the client:
+1.   g++ -I. -I$ICE_HOME/include -c DP4Ice.cpp Client.cpp
+2.   g++ -o client DP4Ice.o Client.o -lIce -lIceUtil -pthread
+
+1.
+g++ -I. -I$ICE_HOME/include -c EpisodicMemoryInterface.cpp Client4armarx.cpp
+g++ -o clientEM EpisodicMemoryInterface.o Client4armarx.o -lIce -lIceUtil -pthread
+
+Enas client syndemenos sto network (witout armarx start) 
+./clientEM --Ice.Config=$HOME/.armarx/default.generated.cfg,$HOME/.armarx/default.cfg
+
+
+
+to compile the server (results into: ./graph_plan)
+g++ main.cpp DP.cpp DP_processor.cpp FuzzyTimeTBX.cpp DP4Ice.cpp -I/usr/local/include/igraph -I/home/mmaniada/matplotpp/include -L/usr/local/lib -L/home/mmaniada/matplotpp/build -lmatplotpp -ligraph -lpthread -o graph_plan -lm -lGL -lglut -lGLEW -lGLU -lIce -lIceUtil -std=c++0x
+
+
+g++ main.cpp DP.cpp DP_processor.cpp FuzzyTimeTBX.cpp EpisodicMemoryInterface.cpp PlanGeneratorInterface.cpp -I/usr/local/include/igraph -I. -I$ICE_HOME/include -I/home/mmaniada/matplotpp/include -L/usr/local/lib -L/home/mmaniada/matplotpp/build -lmatplotpp -ligraph -lpthread -o graph_plan -lm -lGL -lglut -lGLEW -lGLU -lIce -lIceUtil -std=c++0x
+
+
+./graph_plan --Ice.Config=$HOME/.armarx/default.generated.cfg,$HOME/.armarx/default.cfg
+
+
+
+Mynhmata:
+- Apo hourdakh, to estimated time toy human action, to opoio tha xrhsimopoioyme gia to constraint handling
+- Apo Sigala to faghto poy thelei o anthrwpos. gia an mporei na kopei, tha baloume ena petalo gia kathe ingredient. Sto robustness tha baloyme high-values mono gia to jaco.
+Ara theloyme o planner na paizei gia 3 agents.
+
+Apo sigala tha kanoyme parse to mynhma poy tha leei, fraoules, mpiskota, cereals. kai tha mpoyn ta antistoixa petala.
+
+

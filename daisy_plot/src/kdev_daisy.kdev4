@@ -1,0 +1,4 @@
+[Project]
+Name=kdev_daisy
+Manager=KDevCMakeManager
+VersionControl=

@@ -1,0 +1,9 @@
+Header header
+int32 a_id
+int32 a_done
+int32 a_assigned
+int32 a_blocked
+int32 a_interupted
+string a_name
+int32 a_param
+

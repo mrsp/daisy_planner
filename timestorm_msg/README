@@ -1,0 +1,5 @@
+This package contains the messages for the communication with daisy planner 
+//TODO
+-description of message types
+-list of valid ids
+-list of valid params per id
