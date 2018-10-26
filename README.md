@@ -11,6 +11,7 @@ These instructions will get you a copy of the project up and running on your loc
 ## Prerequisites
 * Ubuntu 14.04 and later
 * ROS indigo and later
+* gnuplot (for visualization)
 
 ## Installing
 * mkdir -p dp_ws/src && cd dp_ws/src
