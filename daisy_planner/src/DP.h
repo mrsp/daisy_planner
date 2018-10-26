@@ -3,7 +3,7 @@
 #define _DP_H
 
 
-//#include "fuzzy_calc.h"
+#include "fuzzy_calc.h"
 #include "DP_processor.h"
 
 

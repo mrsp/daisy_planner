@@ -74,12 +74,6 @@ H dynatothta ypologismoy eleyteroy xronoy (free time).
 #include <std_msgs/String.h>
 #include <sstream>
 
-
-
-
-//DP gDP;
-
-
 #include <errno.h> 
 #include <unistd.h>   //close 
 #include <netinet/in.h> 
@@ -99,6 +93,9 @@ double robot2target=0.0;
 
 
 using namespace std;
+
+
+#define _FullReDraw
 
 
 
@@ -173,7 +170,7 @@ void gnuLine2(vector<double> x,   vector<double> y,  int astyle){
   
   gp << "plot "<< gp.file1d(data)<<" using 1:2:3:4 with vectors arrowstyle "<<astyle<<" notitle  \n ";   
 
-    gp.flush();
+//    gp.flush();
 
 }
   
@@ -187,9 +184,15 @@ void drawPetals(){
 
     std::vector<boost::tuple<double, double, double, double> > pts_A;
 
-
+#ifdef _FullReDraw
 //     gp<< "clear\n";
- 
+        gp<< "unset multiplot\n";
+	sleep(0.3);
+       gp<< "set multiplot\n";
+#endif
+     
+
+     
     int pnum=petalNumber;
 	int circle_seg=360/(pnum);
 	double tx, ty;
@@ -244,20 +247,37 @@ void drawPetals(){
 		//  int angle=j*circle_seg;
 			//generate coordinates of edges linked on a petal-like drawing	
 		  if (i<len-1){
-		      if ((angle>=0) & (angle<91)){
-			x.push_back(co*(1*i+1)-sqrt(i*i*i)*0.4);
-			y.push_back(si*(1*i+1)-sqrt(i*i*i)*0.2);
+		      if ((angle>=0) & (angle<46)){
+			x.push_back(0.3+co*(2*i+1)-sqrt(i*i*i)*0.7);
+			y.push_back(0.5+si*(1*i+1)-sqrt(i*i*i)*0.2);
 		      }
-		      if ((angle>90) & (angle<181)){
-			x.push_back(co*(1*i+1)+sqrt(i*i*i)*0.4);
-			y.push_back(si*(1*i+1)-sqrt(i*i*i)*0.1);
+		      else if ((angle>45) & (angle<91)){
+			x.push_back(0.9+co*(1*i+1)-sqrt(i*i*i)*0.3); //0.6
+			y.push_back(0.7+si*(2*i+1)-sqrt(i*i*i)*0.1);
 		      }
-		      if ((angle>180) & (angle<271)){
-			x.push_back(co*(1*i+1)+sqrt(i*i*i)*0.4);
-			y.push_back(si*(1*i+1)+sqrt(i*i*i)*0.1);
+		      else if ((angle>90) & (angle<136)){
+			x.push_back(-0.4+co*(1*i+1)+sqrt(i*i*i)*0.4);
+			y.push_back(0.5+si*(2*i+1)-sqrt(i*i*i)*0.1);
 		      }
-		      if ((angle>270) ){
-			x.push_back(co*(1*i+1)-sqrt(i*i*i)*0.4);
+		      else if ((angle>135) & (angle<181)){
+			x.push_back(-0.3+co*(2*i+1)+sqrt(i*i*i)*0.5);
+//			y.push_back(si*(1*i+1)+sqrt(abs(2-i)*abs(2-i))*0.3);
+			y.push_back(si*(1*i+1)+sqrt(i*i*i)*0.6);
+		      }
+		      else if ((angle>180) & (angle<226)){
+			x.push_back(-0.5+co*(2*i+1)+sqrt(i*i*i)*0.7);
+			y.push_back(si*(1*i+1)-sqrt(i*i*i)*0.6);
+		      }
+		      else if ((angle>225) & (angle<271)){
+			x.push_back(-0.4+co*(1*i+1)+sqrt(i*i*i)*0.4);
+			y.push_back(-0.5+si*(2*i+1)+sqrt(i*i*i)*0.1);
+		      }
+		      else if ((angle>270) & (angle<316) ){
+			x.push_back(0.5+co*(1*i+1)-sqrt(i*i*i)*0.4);
+			y.push_back(-1.0+si*(2*i+1)+sqrt(i*i*i)*0.1);
+		      }
+		      else if ((angle>375) ){
+			x.push_back(co*(2*i+1)-sqrt(i*i*i)*0.4);
 			y.push_back(si*(1*i+1)+sqrt(i*i*i)*0.1);
 		      }
 		  }
@@ -266,7 +286,9 @@ void drawPetals(){
 		      tx=x.at(0);
 		      ty=y.at(0);
 		      y.push_back(0.0);
-		      x.push_back(0.0);			   
+		      x.push_back(0.0);		
+//		      cout<<"p"<<j<<".a"<<i<<" done:"<<petal[j].action[i].done<<" assigned:"<<petal[j].action[i].assigned;
+//		      cout<<"      p"<<j<<".a"<<i-1<<" done:"<<petal[j].action[i-1].done<<" assigned:"<<petal[j].action[i-1].assigned<<endl;
 		  }
 //		  cout<<"drawing the lines"<<endl;	
 		  if ( ((petal[j].action[i].done==1) ) || ((petal[j].action[i].done==1) && (i==len-1)) ){
@@ -301,8 +323,6 @@ void drawPetals(){
 				
 		  }
 		  else if (petal[j].action[i].done<0){ //done regards the vetex at the end of the edge
-		    if ((j==5)|| (j==3)){
-		    }
 //		    cout << "gg"<<endl;
 //				myLine(x,y, len, i, 1, "k");
 				gnuLine2(x, y, 51); ////ayto einai lathos
@@ -404,7 +424,11 @@ void drawPetals(){
 //	axis(mintx-0.3,maxtx+1.8,minty-0.5,maxty+0.5);
 //	axis(-4,4,-4,4);
 
-	
+#ifdef _FullReDraw
+	    gp.flush();
+	//        gp<< "unset multiplot\n";
+
+#endif
 }
 
 
@@ -470,9 +494,9 @@ int main(int argc, char **argv) {
 
 
     
-    gp<< "set multiplot\n";
-    gp << "set xrange [-3.5:3.5]\n";
-    gp << "set yrange [-3.5:3.5]\n";
+//    gp<< "set multiplot\n";
+    gp << "set xrange [-4.5:6.5]\n";
+    gp << "set yrange [-5.5:5.5]\n";
     gp<< "set size 1,1\n";
     gp<< "set origin 0,0\n";
 
@@ -533,13 +557,13 @@ int main(int argc, char **argv) {
 
     ros::Subscriber GRAPH_sub = n.subscribe("/daisy/graph_chatter", 1, GRAPHchatterCallback);
 
-    ros::Rate loop_rate(1);
+    ros::Rate loop_rate(0.3);
 
     ros::spin();
 
 
 	    sleep(999999999);
-    gp<< "unset multiplot\n";
+//    gp<< "unset multiplot\n";
 	
 
 }
