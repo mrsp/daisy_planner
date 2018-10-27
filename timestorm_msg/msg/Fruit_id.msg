@@ -1,2 +1,3 @@
 Header header
-uint32[] fruit_id
+int32 duration
+int32[] fruit_id
