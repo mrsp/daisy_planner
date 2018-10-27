@@ -1493,7 +1493,7 @@ int DP_processor::getConstrTimeOnPetal(int my_aid, int pid){
 
     for (int m=0; m<petal[pid].from_cNum; m++){
         int cid=petal[pid].pcFromL[m]; //the id of the constraint
-        cout << "\nc:" <<cid <", ";
+        cout << "\nc:" <<cid <<", ";
         if (constr[cid].stateOn == 1){
             rt=0;
             ttoc=0;
