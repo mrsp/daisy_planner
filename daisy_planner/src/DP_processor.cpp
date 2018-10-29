@@ -13,7 +13,7 @@
 #include <functional>
 #include <iostream>
 #include <string>
-
+#include <sstream>
 #define CONSTRAINT_HANDLING 1   //0: Select petal based on the less number of constraints
                                 //1: Select petal based on the faster resolved constraints
 
@@ -26,11 +26,11 @@
 using namespace std;
 
 
-extern double humanArousal;
-extern double arousalToTimeEffect;
+double humanArousal=0.85;
+double arousalToTimeEffect=1.15;
 
-extern double human2target;
-extern double robot2target;
+double human2target=0.0;
+double robot2target=0.0;
 
 extern commandlineParameters cp;
 
@@ -38,226 +38,289 @@ int moveon=0;
 int localT=0;
 float max_urgency=1.0; // this is not static but increases linearly by 1, as time goes by.....
 
-#define _TestWithNoRobots
+//#define _TestWithNoRobots
 
-
+int TelephoneDur=0; //0: nothing happens
+		    //-1: waiting resonse
+		    //>0: this is the response
+		    
 float MixingCycleDuration=2.6;
 
-const char* MenuItems[] = {"no", "APPLE", "BANANA", "GRAPE", "WATERMELON", "ORANGE", "STRAWBERRIES", "CHERRIES"};
+const char* MenuItems[] = {"no", "GRAPE", "BANANA", "APPLE", "CUCCUMBER", "MUSHROOM", "STRAWBERRIES", "CHERRIES"};
 
-DP_processor *myself;
+//DP_processor *myself;
+
+int phone_rung=0;
+
+int idleT[MAX_AGENTS] = {0}; 
+
 
 
 /*--------------------------------------------------------------------*/
+DP_processor::DP_processor(){
 
-void NAOchatterCallback(const timestorm_msg::Robot::ConstPtr& msg)
+   init();
+//   myself=this;
+       
+   ros::init(cp.nargc, cp.nargv, "daisy_planner");
+   n=new ros::NodeHandle();
+//   ros::NodeHandle n;
+   
+   
+   
+   NAO_pub = n->advertise<timestorm_msg::Daisy>("/daisy/to_nao_chatter", 10) ;
+   JACO_pub = n->advertise<timestorm_msg::Daisy>("/daisy/to_jaco_chatter", 10);
+   HUMAN_pub = n->advertise<timestorm_msg::Daisy>("/daisy/to_human_chatter", 10) ;
+   MEMQUERY_pub = n->advertise<timestorm_msg::Query>("/daisy/mem_query_chatter", 10);
+   ARTIME_pub = n->advertise<timestorm_msg::Arousal_time>("/daisy/arousal_chatter", 10);
+   GRAPH_pub = n->advertise<timestorm_msg::Daisy_graph>("/daisy/graph_chatter", 10);
+
+   TEL_sub = n->subscribe("/telephony_info", 10, &DP_processor::TelephonechatterCallback,this);
+   MEMRESPONSE_sub = n->subscribe("/daisy/mem_response_chatter", 10,  &DP_processor::RESPONSEchatterCallback,this);
+   HUMAN_Perc_sub = n->subscribe("/nao_com/time", 10, &DP_processor::HUMAN_Perc_chatterCallback,this);
+   JACO_sub = n->subscribe("/daisy/from_jaco_chatter", 10, &DP_processor::JACOchatterCallback,this);
+   NAO_sub = n->subscribe("/daisy/from_nao_chatter", 10, &DP_processor::NAOchatterCallback,this);
+   
+/*
+   TEL_sub = new ros::Subscriber(n->subscribe("/telephony_info", 10, TelephonechatterCallback));
+   MEMRESPONSE_sub = new ros::Subscriber(n->subscribe("/daisy/mem_response_chatter", 10, RESPONSEchatterCallback));
+   HUMAN_Perc_sub = new ros::Subscriber(n->subscribe("/nao_com/time", 10, HUMAN_Perc_chatterCallback));
+   JACO_sub = new ros::Subscriber(n->subscribe("/daisy/from_jaco_chatter", 10, JACOchatterCallback));
+   NAO_sub = new ros::Subscriber(n->subscribe("/daisy/from_nao_chatter", 10, NAOchatterCallback));
+*/
+   
+
+}
+
+/*--------------------------------------------------------------------*/
+
+void DP_processor::NAOchatterCallback(const timestorm_msg::Robot::ConstPtr& msg)
 {
   ROS_INFO("------------------ NAOchatter heard: aid:%d compl:%d\n\n\n", msg->a_id, msg->a_completed);
   if (msg->a_completed==1){
-	myself->setCurrentActionComplete(NAO_ID);
+	setCurrentActionComplete(NAO_ID);
   }
-  
-        myself->sendDaisyState();
 
 }
 
 
 /*--------------------------------------------------------------------*/
 
-void JACOchatterCallback(const timestorm_msg::Robot::ConstPtr& msg)
+void DP_processor::JACOchatterCallback(const timestorm_msg::Robot::ConstPtr& msg)
 {
   ROS_INFO("################# JACOchatter heard: aid:%d compl:%d", msg->a_id, msg->a_completed);
   if (msg->a_completed==1){
-	myself->setCurrentActionComplete(JACO_ID);
+	setCurrentActionComplete(JACO_ID);
   }
   
   if (msg->a_param>0){ //number of executed mixing-cycles
      //na antistoixithoyn ta cycles se xrono
   }
-  
-        myself->sendDaisyState();
-
 }
 
+
 /*--------------------------------------------------------------------*/
-/*
-void HUMANchatterCallback(const timestorm_msg::Robot::ConstPtr& msg)
+
+void DP_processor::TelephonechatterCallback(const timestorm_msg::telephony_msg::ConstPtr& msg)
 {
-  ROS_INFO("()()()()()()()() HUMANchatter heard: aid:%d compl:%d", msg->a_id, msg->a_completed);
-  if (msg->a_completed==1){
-	myself->setCurrentActionComplete(HUMAN_ID);
-  }
   
-        myself->sendDaisyState();
+  ROS_INFO("********* TELEPHONEchatter heard: aid:%s from:%s", msg->event.c_str(), msg->number.c_str());
+  string tel_event=msg->event;
+  string calling_num=msg->number;
+  if ((tel_event.find("ringing")!=std::string::npos) && (!phone_rung) && (tel_event.find("ringing_ended")==std::string::npos)){
 
+    phone_rung=1;
+     cout<<"\n\n\nphone is ringing\n\n"<<endl; 
+//     askMemory(2); //send the second message-query to memory
+     cout<<"NAO "<<agentMainWorkingPetal[NAO_ID]<<"."<<agentMainWorkingAction[NAO_ID]<<endl;
+
+    if ((agentMainWorkingPetal[NAO_ID]>=0) && (agentMainWorkingAction[NAO_ID]>=0)){
+	string NAO_actionName(petal[agentMainWorkingPetal[NAO_ID]].action[agentMainWorkingAction[NAO_ID]].name); //make a string with the name of the action
+	int fruitOnShelf=-1;
+    
+	cout <<"NAO works on "<<NAO_actionName.c_str();
+	for (int i=0; i<petalNumber; i++){
+//	  cout<<"-- "<<petal[i].completed<<"       ";
+	  if (((i==2) ||(i==3) || (i==4) || (i==5)) && ((petal[i].completed==-1) || (petal[i].completed==4))){    
+	    fruitOnShelf=1;    
+	    break;
+	  }
+	}
+	cout<<"there are fruits on shelf:"<<fruitOnShelf<<endl;
+	if ((fruitOnShelf==1) && (NAO_actionName.find("Move2Table")!=std::string::npos) ){
+	  //ask memory to get call_duration         
+	  cout <<"sendig query"<<endl;
+	  askMemory(2); //send the second message-query to memory
+	  TelephoneDur=-1;// makeready to receive duration
+	}
+    }
+  }
+  	
 }
-*/
+
 /*--------------------------------------------------------------------*/
 
-void HUMAN_Perc_chatterCallback(const timestorm_msg::Time::ConstPtr& msg)
+void DP_processor::HUMAN_Perc_chatterCallback(const timestorm_msg::Time::ConstPtr& msg)
 {
   ROS_INFO("()()()()()()()()() HUMAN_Perc_chatter heard dur:%d, eff:%f", (int)msg->duration, (float)msg->efficiency );
   
   if ((msg->duration>=0) &&(msg->duration<1000)){
-    myself->setRemainingTimeForAction(HUMAN_ID, myself->agentMainWorkingPetal[HUMAN_ID], myself->agentMainWorkingAction[HUMAN_ID], msg->duration);
+    setRemainingTimeForAction(HUMAN_ID, agentMainWorkingPetal[HUMAN_ID], agentMainWorkingAction[HUMAN_ID], msg->duration);
   }
   
   if ((msg->efficiency>=0.0) &&(msg->efficiency<1000.0)){
+    humanArousal=msg->efficiency/100.0;
     arousalToTimeEffect=sqrt(1.0+(msg->efficiency/100.0)-0.75);
   }
-  /*
-  if (((int)msg->efficiency==-1) &&((int)msg->efficiency==-1)){
-    myself->petal[myself->agentMainWorkingPetal[HUMAN_ID]].action[myself->agentMainWorkingAction[HUMAN_ID]].exp_deftime[HUMAN_ID]+=200;
-    int p=myself->agentMainWorkingPetal[(int)NAO_ID];
-    	      if ( (p==0) &&(myself->agentMainWorkingAction[NAO_ID]==2)){
-		
-		
-		cout <<"inteRVining..."<<endl;
-		//myself->intervene(p, NAO_ID);
-	      }
 
-    cout << "\n\nHuman postponed action \n\n";
-  }
-*/
+  sendArousalTime();
   //this is used in order to inform plots about the remaining time of the human agent
-  myself->sendAction2ROS(HUMAN_ID);
+  //sendAction2ROS(HUMAN_ID);
 
-  //myself->sendDaisyState();
 
 }
 /*--------------------------------------------------------------------*/
 
 //this function updates the Menu, based on the menus provided by the memeory-based inference engine
-void MENUchatterCallback(const timestorm_msg::Fruit_id::ConstPtr& msg)
+void DP_processor::RESPONSEchatterCallback(const timestorm_msg::Fruit_id::ConstPtr& msg)
 {
 //  makeMenuPlan(msg.Fruit_id[0], msg.Fruit_id[1], msg.Fruit_id[2], msg.Fruit_id[3]);
   
   
-  ROS_INFO("MENUchatter heard: %d %d %d %d ",msg->fruit_id[0], msg->fruit_id[1], msg->fruit_id[2], msg->fruit_id[3]);
-  
-//  petal[2].action[2].name<<"GRASP_%"<< ingredientNames[ingr_id];
-//  petal[2].action[2].name<<"GRASP_%"<< ingredientNames[ingr_id];
-  
-  
-  //replace the occurences of the "Fruit1" string with the name of the first selected fruit
-  string s2remove="Fruit1";
-  int c=0;
-  string s2put=MenuItems[msg->fruit_id[c]];
-  int pet=2;
-  int act=0;
-//  cout<<myself->petal[pet].action[act].name;
-  if (myself->petal[pet].action[act].name.find(s2remove)!=std::string::npos){
-//    std::size_t p0 =myself->petal[pet].action[act].name.find(s2remove); //a new petal start is found
+  ROS_INFO("\n\nMENUchatter heard: %d %d %d %d        dur:%d\n\n",msg->fruit_id[0], msg->fruit_id[1], msg->fruit_id[2], msg->fruit_id[3], msg->duration);
 
-    myself->petal[pet].action[act].name.replace(myself->petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
-//    cout<<myself->petal[pet].action[act].name;
-  
-    act=1;
-    myself->petal[pet].action[act].name.replace(myself->petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
-    act=2;
-    myself->petal[pet].action[act].name.replace(myself->petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
-  }
-  //replace the occurences of the "Fruit2" string  with the name of the second selected fruit
-  s2remove="Fruit2";
-  c=1;
-  s2put=MenuItems[msg->fruit_id[c]];
-  pet=3;
-  act=0;
+  int d= (int)msg->duration;
+//  cout<< endl<<msg->duration<<"to replace fruits"<<d<<endl;
 
-  if (myself->petal[pet].action[act].name.find(s2remove)!=std::string::npos){
-    myself->petal[pet].action[act].name.replace(myself->petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
-    act=1;
-    myself->petal[pet].action[act].name.replace(myself->petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
-    act=2;
-    myself->petal[pet].action[act].name.replace(myself->petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
-  }
-  //replace the occurences of the "Fruit3" string  with the name of the third selected fruit
-  s2remove="Fruit3";
-  c=2;
-  s2put=MenuItems[msg->fruit_id[c]];
-  pet=4;
-  act=0;
-  if (myself->petal[pet].action[act].name.find(s2remove)!=std::string::npos){
-    myself->petal[pet].action[act].name.replace(myself->petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
-    act=1;
-    myself->petal[pet].action[act].name.replace(myself->petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
-    act=2;
-    myself->petal[pet].action[act].name.replace(myself->petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
-  }
-  
-        myself->sendDaisyState();
+  if (msg->duration>=0){
+      if (TelephoneDur<=0){
+	TelephoneDur=msg->duration;
+      }
+      cout<<"added duration"<<TelephoneDur<<endl;
+      
+      int expCallDuration;
+      
+      expCallDuration=TelephoneDur;
+//      expCallDuration=100;
+      
+      petal[agentMainWorkingPetal[HUMAN_ID]].action[agentMainWorkingAction[HUMAN_ID]].exp_deftime[HUMAN_ID]+=expCallDuration;	
 
+      if (petal[agentMainWorkingPetal[HUMAN_ID]].action[agentMainWorkingAction[HUMAN_ID]].exp_deftime[HUMAN_ID]>70){	
+	cout <<"\n\ninteRVining NAO's action plan...\n\n"<<endl;
+	int p=agentMainWorkingPetal[NAO_ID];
+	intervene(p, NAO_ID);    
+      }
+      
+  }
+  else {
+      if ((msg->fruit_id[0]<=0) || (msg->fruit_id[1]<=0)|| (msg->fruit_id[2]<=0) ||(msg->fruit_id[3]<=0))
+	return;
+//    cout<< "to replace fruits\n";
+      //replace the occurences of the "Fruit1" string with the name of the first selected fruit
+      string s2remove="Fruit1";
+      int c=0;
+      string s2put=MenuItems[msg->fruit_id[c]];
+      int pet=2;
+      int act=0;
+
+      if (petal[pet].name.find(s2remove)!=std::string::npos){
+	petal[pet].name.replace(petal[pet].name.find(s2remove),s2remove.length(),s2put);
+      }
+      if (petal[pet].action[act].name.find(s2remove)!=std::string::npos){
+    //    std::size_t p0 =myself->petal[pet].action[act].name.find(s2remove); //a new petal start is found
+
+	petal[pet].action[act].name.replace(petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
+    //    cout<<myself->petal[pet].action[act].name;
+      
+	act=1;
+	petal[pet].action[act].name.replace(petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
+	act=2;
+	petal[pet].action[act].name.replace(petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
+      }
+
+      //replace the occurences of the "Fruit2" string  with the name of the second selected fruit
+      s2remove="Fruit2";
+      c=1;
+      s2put=MenuItems[msg->fruit_id[c]];
+      pet=3;
+      act=0;
+      if (petal[pet].name.find(s2remove)!=std::string::npos){
+	petal[pet].name.replace(petal[pet].name.find(s2remove),s2remove.length(),s2put);
+      }
+      if (petal[pet].action[act].name.find(s2remove)!=std::string::npos){
+	petal[pet].action[act].name.replace(petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
+	act=1;
+	petal[pet].action[act].name.replace(petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
+	act=2;
+	petal[pet].action[act].name.replace(petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
+      }
+      
+      
+      //replace the occurences of the "Fruit3" string  with the name of the third selected fruit
+      s2remove="Fruit3";
+      c=2;
+      s2put=MenuItems[msg->fruit_id[c]];
+      pet=4;
+      act=0;
+      if (petal[pet].name.find(s2remove)!=std::string::npos){
+	petal[pet].name.replace(petal[pet].name.find(s2remove),s2remove.length(),s2put);
+      }
+      if (petal[pet].action[act].name.find(s2remove)!=std::string::npos){
+	petal[pet].action[act].name.replace(petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
+	act=1;
+	petal[pet].action[act].name.replace(petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
+	act=2;
+	petal[pet].action[act].name.replace(petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
+      }
+      
+      
+      //replace the occurences of the "Fruit3" string  with the name of the third selected fruit
+      s2remove="Fruit4";
+      c=3;
+      s2put=MenuItems[msg->fruit_id[c]];
+      pet=5;
+      act=0;
+      if (petal[pet].name.find(s2remove)!=std::string::npos){
+	petal[pet].name.replace(petal[pet].name.find(s2remove),s2remove.length(),s2put);
+      }
+      if (petal[pet].action[act].name.find(s2remove)!=std::string::npos){
+	petal[pet].action[act].name.replace(petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
+	act=1;
+	petal[pet].action[act].name.replace(petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
+	act=2;
+	petal[pet].action[act].name.replace(petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
+	
+//	cout<<"\n\nnew fruit name "<<myself->petal[pet].action[act].name.c_str();
+      }
+  }
+        sendDaisyState();
 }
+
+
 
 
 /*--------------------------------------------------------------------*/
-//this will support the visualization of the DP
-/*void DPchatterCallback(const nao_com::Time::ConstPtr& msg)
-{
-  ROS_INFO("DPchatter heard: ");
-}
-*/
-/*--------------------------------------------------------------------*/
-/*
-void DP_processor::DPchatterCallback(const nao_com::Time::ConstPtr& msg)
-{
-  ROS_INFO("I heard: ");
-}
-*/
-/*--------------------------------------------------------------------*/
-DP_processor::DP_processor(){
 
-   init();
-   myself=this;
-       
-   ros::init(cp.nargc, cp.nargv, "daisy_planner");
-   
-   n=new ros::NodeHandle();
-
-    cout<<"sending menu"<<endl;
-
-   
-   NAO_pub = new ros::Publisher(n->advertise<timestorm_msg::Daisy>("/daisy/to_nao_chatter", 10) );
-   NAO_sub = new ros::Subscriber(n->subscribe("/daisy/from_nao_chatter", 10, NAOchatterCallback));
-
-   JACO_pub = new ros::Publisher(n->advertise<timestorm_msg::Daisy>("/daisy/to_jaco_chatter", 10) );
-   JACO_sub = new ros::Subscriber(n->subscribe("/daisy/from_jaco_chatter", 10, JACOchatterCallback));
-
-   HUMAN_pub = new ros::Publisher(n->advertise<timestorm_msg::Daisy>("/daisy/to_human_chatter", 10) );
-//   HUMAN_sub = new ros::Subscriber(n->subscribe("/daisy/from_human_chatter", 10, JACOchatterCallback));
-   
-   //This is used to hear the Human-action related estimates
-//   HUMAN_Perc_pub = new ros::Publisher(n->advertise<timestorm_msg::Time>("/nao_com/time", 10) );
-   HUMAN_Perc_sub = new ros::Subscriber(n->subscribe("/nao_com/time", 10, HUMAN_Perc_chatterCallback));
-   
-   MENU_pub = new ros::Publisher(n->advertise<timestorm_msg::Fruit_id>("/daisy/menu_chatter", 10) );
-   MENU_sub = new ros::Subscriber(n->subscribe("/daisy/menu_chatter", 10, MENUchatterCallback));
-
-   GRAPH_pub = new ros::Publisher(n->advertise<timestorm_msg::Daisy_graph>("/daisy/graph_chatter", 10) );
-//   GRAPH_sub = new ros::Subscriber(n->subscribe("/daisy/graph_chatter", 10, GRAPHchatterCallback));
-
-//   GRAPH_sub = n.subscribe("/daisy/graph_chatter", 10, GRAPHchatterCallback);
-
-   
-//   MemQuery_pub = new ros::Publisher(n->advertise<timestorm_msg::Fruit_id>("MemQuery_chatter", 10) );
-//   MemQuery_sub = new ros::Subscriber(n->subscribe("MemQuery_chatter", 10, MemQuerychatterCallback));
-   
-   
-
-/*   
-   DPvis_pub = n.advertise<timestorm_msg::Time>("DP_chatter", 10);
-   DPvis_sub = n.subscribe("DP_chatter", 10, DPchatterCallback);
-*/
-
-
- cout<<"sending menu"<<endl;
-
-  sendMenu();
+void DP_processor::askMemory(int mtype){
+  
+      timestorm_msg::Query q_msg;
+      if (mtype==1){    
+	string qs ("QUERY,Fruits,Time,2018,Time,Tuesday");
+	q_msg.query=qs;//qs.str();
+	MEMQUERY_pub.publish(q_msg);
+	cout<< "......message send......"<<endl;
+      }
+      else if (mtype==2){    
+	string qs("QUERY,Duration,ACTOR,Manolis,ACTOR,Girlfriend");
+	q_msg.query=qs;
+	MEMQUERY_pub.publish(q_msg);
+	cout<< "......message send......"<<endl;
+      }
+      else{
+	cout <<"DP_processor::askMemory(). Unknown Query Type.....\n"<<endl;
+      }
 
 }
-
-
-
 
 
 /*--------------------------------------------------------------------*/
@@ -265,21 +328,13 @@ DP_processor::DP_processor(){
 void DP_processor::sendAction2ROS(int ag_id){
   
       timestorm_msg::Daisy msg;
-      if (agentMainWorkingPetal[ag_id]==0)
-	  msg.p_name="Transfer_Breakfast";
-      else if (agentMainWorkingPetal[ag_id]==1)
-	  msg.p_name="Clean_Table";
-      else if (agentMainWorkingPetal[ag_id]==2)
-	  msg.p_name="Carry_Fruit1";
-      else if (agentMainWorkingPetal[ag_id]==3)
-	  msg.p_name="Carry_Fruit2";
-      else if (agentMainWorkingPetal[ag_id]==4)
-	  msg.p_name="Carry_Fruit3";
-      else if (agentMainWorkingPetal[ag_id]==5)
-	  msg.p_name="Carry_Fruit4";
-      else if (agentMainWorkingPetal[ag_id]==6)
-	  msg.p_name="Mix_Bowl_Content";
-      
+
+      if (agentMainWorkingPetal[ag_id]>=0)
+	msg.p_name=petal[agentMainWorkingPetal[ag_id]].name;
+      else{
+	msg.p_name="";
+	return;
+      }
       msg.p_id=agentMainWorkingPetal[ag_id];
       
       msg.a_name=petal[agentMainWorkingPetal[ag_id]].action[agentMainWorkingAction[ag_id]].name;
@@ -297,7 +352,7 @@ void DP_processor::sendAction2ROS(int ag_id){
       }
      
       if (ag_id==JACO_ID){	
-	msg.a_param=-1;
+	msg.a_param=-1; 
 	string s(petal[agentMainWorkingPetal[ag_id]].action[agentMainWorkingAction[ag_id]].name); //make a string with the name of the action
 
 	if (agentMainWorkingPetal[ag_id]==petalNumber-1){
@@ -324,7 +379,7 @@ void DP_processor::sendAction2ROS(int ag_id){
 	}
 #ifndef _TestWithNoRobots	
 	ROS_INFO("send to JACO: p:%d aid:%d ap:%d as:%d ae:%d ", msg.p_id, msg.a_id, msg.a_param, msg.a_start_time, msg.a_end_time);    
-	JACO_pub->publish(msg);
+	JACO_pub.publish(msg);
 #endif	
       }
       else if (ag_id==NAO_ID){
@@ -349,16 +404,16 @@ void DP_processor::sendAction2ROS(int ag_id){
 	}
 #ifndef _TestWithNoRobots	
 	    ROS_INFO("send to NAO: p:%d aid:%d ap:%d as:%d ae:%d ", msg.p_id, msg.a_id, msg.a_param, msg.a_start_time, msg.a_end_time);
-	    NAO_pub->publish(msg);
+	    NAO_pub.publish(msg);
 #endif
       }
       else if (ag_id==HUMAN_ID){
 #ifndef _TestWithNoRobots	
-	    HUMAN_pub->publish(msg);
+	    HUMAN_pub.publish(msg);
 #endif
       }
       
-            sendDaisyState();
+      sendDaisyState();
 
 }
 
@@ -382,11 +437,11 @@ void DP_processor::sendCancel2JACO(int ag_id){
 
 #ifndef _TestWithNoRobots  
       ROS_INFO("send to JACO: p:%d aid:%d ap:%d as:%d ae:%d ", msg.p_id, msg.a_id, msg.a_param, msg.a_start_time, msg.a_end_time);    
-      JACO_pub->publish(msg);
+      JACO_pub.publish(msg);
 #endif
   }
   
-     sendDaisyState();
+//     sendDaisyState();
 
 }
 
@@ -400,12 +455,13 @@ void DP_processor::sendDaisyState(){
   
     timestorm_msg::Daisy_graph msg;
 
-// #ifndef _TestWithNoRobots    
-    
+//#ifndef _TestWithNoRobots    
+//    cout<<"stelnei"<<endl;
     msg.p_num=petalNumber;
     msg.pet.resize(petalNumber);
 
     for (int i=0; i<petalNumber; i++){
+      msg.pet[i].p_name=petal[i].name;	  
       msg.pet[i].p_id=petal[i].id;	  
       msg.pet[i].p_assigned=petal[i].assigned;
       msg.pet[i].p_completed=petal[i].completed;
@@ -425,36 +481,144 @@ void DP_processor::sendDaisyState(){
 	   msg.pet[i].act[j].a_param=petal[i].action[j].param;
         }      
     }
-    GRAPH_pub->publish(msg);
+    
+//    cout<<"sending graph"<<endl;
+
+    GRAPH_pub.publish(msg);
+//#endif    
+}
+
+/*--------------------------------------------------------------------*/
+
+void DP_processor::sendArousalTime(){
+  
+    timestorm_msg::Arousal_time msg;
+
+//#ifndef _TestWithNoRobots    
+
+    double impT, expT;
+    if ((agentMainWorkingPetal[HUMAN_ID]>=0) ){
+	getPetalExpectedTime(HUMAN_ID, &impT, &expT);
+	msg.hp_name=petal[agentMainWorkingPetal[HUMAN_ID]].name;
+	msg.hp_exp=expT;
+	msg.hp_imp=impT;
+    }
+    else{
+	msg.hp_exp=0;
+	msg.hp_imp=0;
+    }
+    if ((agentMainWorkingPetal[NAO_ID]>=0) ){
+	getPetalExpectedTime(NAO_ID, &impT, &expT);
+	msg.naop_name=petal[agentMainWorkingPetal[NAO_ID]].name;
+	msg.naop_exp=expT;
+	msg.naop_imp=impT;
+	cout<<"NAO"<<petal[agentMainWorkingPetal[NAO_ID]].name.c_str();
+    }
+    else{
+	msg.naop_exp=0;
+	msg.naop_imp=0;
+    }
+    if ((agentMainWorkingPetal[JACO_ID]>=0)){
+	getPetalExpectedTime(JACO_ID, &impT, &expT);
+	msg.jacop_name=petal[agentMainWorkingPetal[JACO_ID]].name;
+	msg.jacop_exp=expT;
+	msg.jacop_imp=impT;
+    }
+    else{
+	msg.jacop_exp=0;
+	msg.jacop_imp=0;
+    }
+    
+    msg.humant2complete=human2target;
+    msg.humanfeels=(int)(human2target*arousalToTimeEffect);
+    msg.humanarousal=humanArousal;
+    msg.naot2deliver=robot2target;
+
+    ARTIME_pub.publish(msg);
 //#endif    
 }
 
 
-
 /*--------------------------------------------------------------------*/
 
-void DP_processor::sendMenu(){
-  
-      timestorm_msg::Fruit_id msg;
+
+void DP_processor::setMenu()
+{
+//    cout<< "to replace fruits\n";
+      //replace the occurences of the "Fruit1" string with the name of the first selected fruit
+      string s2remove="Fruit1";
+      int c=1;
+
+      string s2put=MenuItems[c];
+      int pet=2;
+      int act=0;
+      if (petal[pet].name.find(s2remove)!=std::string::npos){
+	petal[pet].name.replace(petal[pet].name.find(s2remove),s2remove.length(),s2put);
+      }
+      if (petal[pet].action[act].name.find(s2remove)!=std::string::npos){
+
+	petal[pet].action[act].name.replace(petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
       
-      msg.fruit_id.resize(6);
+	act=1;
+	petal[pet].action[act].name.replace(petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
+	act=2;
+	petal[pet].action[act].name.replace(petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
+      }
 
-   //   prepei na ginei init to megethos toy pinaka
-      msg.fruit_id[0]=1;
-      msg.fruit_id[1]=2;
-      msg.fruit_id[2]=3;
-      msg.fruit_id[3]=4;
-      msg.fruit_id[4]=5;
-      msg.fruit_id[5]=6;
-
-#ifndef _TestWithNoRobots          
-      MENU_pub->publish(msg);
-#endif      
+      //replace the occurences of the "Fruit2" string  with the name of the second selected fruit
+      s2remove="Fruit2";
+      c=2;
+      s2put=MenuItems[c];
+      pet=3;
+      act=0;
+      if (petal[pet].name.find(s2remove)!=std::string::npos){
+	petal[pet].name.replace(petal[pet].name.find(s2remove),s2remove.length(),s2put);
+      }
+      if (petal[pet].action[act].name.find(s2remove)!=std::string::npos){
+	petal[pet].action[act].name.replace(petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
+	act=1;
+	petal[pet].action[act].name.replace(petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
+	act=2;
+	petal[pet].action[act].name.replace(petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
+      }
+      
+      
+      //replace the occurences of the "Fruit3" string  with the name of the third selected fruit
+      s2remove="Fruit3";
+      c=3;
+      s2put=MenuItems[c];
+      pet=4;
+      act=0;
+      if (petal[pet].name.find(s2remove)!=std::string::npos){
+	petal[pet].name.replace(petal[pet].name.find(s2remove),s2remove.length(),s2put);
+      }
+      if (petal[pet].action[act].name.find(s2remove)!=std::string::npos){
+	petal[pet].action[act].name.replace(petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
+	act=1;
+	petal[pet].action[act].name.replace(petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
+	act=2;
+	petal[pet].action[act].name.replace(petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
+      }
+      
+      
+      //replace the occurences of the "Fruit3" string  with the name of the third selected fruit
+      s2remove="Fruit4";
+      c=4;
+      s2put=MenuItems[c];
+      pet=5;
+      act=0;
+      if (petal[pet].name.find(s2remove)!=std::string::npos){
+	petal[pet].name.replace(petal[pet].name.find(s2remove),s2remove.length(),s2put);
+      }
+      if (petal[pet].action[act].name.find(s2remove)!=std::string::npos){
+	petal[pet].action[act].name.replace(petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
+	act=1;
+	petal[pet].action[act].name.replace(petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
+	act=2;
+	petal[pet].action[act].name.replace(petal[pet].action[act].name.find(s2remove),s2remove.length(),s2put);
+	
+      }
 }
-
-
-
-
 
 /*--------------------------------------------------------------------*/
 void DP_processor::init(){
@@ -480,9 +644,8 @@ void DP_processor::init(){
         agentUrgentWorkingAction[a]=-1;
     }
 
-    cout<<"to start reading"<<endl;
     readDaisy();
-
+    setMenu();
 }
 
 
@@ -614,14 +777,14 @@ void DP_processor::readDaisy(){
         while (std::getline(infile, line))//read an action line
 	{
 	  std::istringstream iss(line);
-	  cout <<"--"<< line<<line.length()<<endl;
+//	  cout <<"--"<< line<<line.length()<<endl;
 	  
 	  if (line.length()==0)
 	    break;
 
 	  std::size_t found1 = line.find("<Act>"); //a new action start is found
 	  std::size_t found2 = line.find("</Act>"); //an action end is found
-	  cout <<found1<<",,"<<found2<<endl;
+//	  cout <<found1<<",,"<<found2<<endl;
 	  if ((found1!=std::string::npos) && (found2!=std::string::npos)){ //read action features
 	    
 	   petal[c].action[ac].id=ac;
@@ -630,7 +793,7 @@ void DP_processor::readDaisy(){
 	    std::size_t name_start = line.find_first_of(s_name)+s_name.length(); //a new petal start is found
 	    std::size_t name_end = line.find_first_of(";"); //a new petal start is found
 	    petal[c].action[ac].name=line.substr (name_start, name_end-name_start);
-	    cout << "part1:"<< line.substr (name_start, name_end-name_start)<<endl;
+//	    cout << "part1:"<< line.substr (name_start, name_end-name_start)<<endl;
 	    
 	    line=line.substr (name_end+1);
 	      
@@ -638,7 +801,7 @@ void DP_processor::readDaisy(){
 	    std::size_t obj_start = line.find_first_of(s_obj)+s_obj.length(); //a new petal start is found
 	    std::size_t obj_end = line.find_first_of(";"); //a new petal start is found
 	    petal[c].action[ac].obj=line.substr (name_start, name_end-name_start);
-	    cout << "part2:"<< line.substr (obj_start, obj_end-obj_start)<<endl;
+//	    cout << "part2:"<< line.substr (obj_start, obj_end-obj_start)<<endl;
 
 	    line=line.substr (obj_end+1);
 
@@ -646,7 +809,7 @@ void DP_processor::readDaisy(){
 	    std::size_t type_start = line.find_first_of(s_type)+s_type.length(); //a new petal start is found
 	    std::size_t type_end = line.find_first_of(";"); //a new petal start is found
 //	    cout<<obj_start <<" "<<obj_end<<endl;
-	    cout << "part3:"<< line.substr (type_start, type_end-type_start)<<endl;
+//	    cout << "part3:"<< line.substr (type_start, type_end-type_start)<<endl;
 
 	    std::string tmps=line.substr (type_start, type_end-type_start);
 	    if (tmps.find("A_Pre")!=std::string::npos){
@@ -663,7 +826,7 @@ void DP_processor::readDaisy(){
 	    }
 
 	    line=line.substr (type_end+1);
-	    cout <<line <<endl;
+//	    cout <<line <<endl;
 	    
 	    while (line.find("<Ag>")!=std::string::npos){
 	      std::string s_iid ("id=");
@@ -672,7 +835,7 @@ void DP_processor::readDaisy(){
 //	    	cout<<obj_start <<" "<<obj_end<<endl;
 //	      cout << "part4:"<< line.substr (iid_start, iid_end-iid_start)<<endl;
 	      int agent_id=std::stoi (line.substr (iid_start, iid_end-iid_start),nullptr); //string to integer
-	      cout << "part4:"<< agent_id <<endl;
+//	      cout << "part4:"<< agent_id <<endl;
 
 
 	      line=line.substr (iid_end+1);
@@ -681,7 +844,7 @@ void DP_processor::readDaisy(){
 	      std::size_t time_start = line.find_first_of(s_time)+s_time.length(); //a new petal start is found
 	      std::size_t time_end = line.find_first_of(");"); 
 //	    	cout<<obj_start <<" "<<obj_end<<endl;
-	      cout << "part5:"<< line.substr (time_start, time_end-time_start)<<endl;
+//	      cout << "part5:"<< line.substr (time_start, time_end-time_start)<<endl;
 
 	      std::stringstream ss(line.substr (time_start, time_end-time_start));
 	      ss >> petal[c].action[ac].expected_ftime[agent_id].s >>  petal[c].action[ac].expected_ftime[agent_id].m1 >> petal[c].action[ac].expected_ftime[agent_id].m2 >>petal[c].action[ac].expected_ftime[agent_id].e;	      
@@ -693,7 +856,7 @@ void DP_processor::readDaisy(){
 	      std::size_t rob_end = line.find_first_of(");"); 
 	      std::stringstream stmp(line.substr (rob_start, rob_end-rob_start));
 	      stmp >> petal[c].action[ac].robust[agent_id] ; 
-	      cout << "part6:"<< petal[c].action[ac].robust[agent_id]<<endl;
+//	      cout << "part6:"<< petal[c].action[ac].robust[agent_id]<<endl;
 
 	      line=line.substr (rob_end+1);
 	      
@@ -708,7 +871,7 @@ void DP_processor::readDaisy(){
 	    petal[c].length=ac;
 	  }
 	  else if (line.find_first_of("</P>")!=std::string::npos){ //this is petal closure
-	    cout<< "break"<<endl;
+//	    cout<< "break"<<endl;
 	    break;
 	  }
 
@@ -796,6 +959,15 @@ void DP_processor::readDaisy(){
     }
 
   }
+  
+  petal[0].name="Transfer_Breakfast";
+  petal[1].name="Clean_Table";
+  petal[2].name="Carry_Fruit1";
+  petal[3].name="Carry_Fruit2";
+  petal[4].name="Carry_Fruit3";
+  petal[5].name="Carry_Fruit4";
+  petal[6].name="Mix_Salad";
+  
   cout<<"showing"<< endl;  
   showPetals(); 
 }
@@ -1457,14 +1629,16 @@ void DP_processor::checkHumanForcedConstraintRelease(int agid, int pid, int veri
       human2target=h_constrT;
     
       if (arousalToTimeEffect*h_constrT<tafterc){ //then human is expected to wait
-	cout << FMAG("H-Arous:")<<arousalToTimeEffect<< FMAG("  H-Time:")<< (int) h_constrT<<endl;
-	cout<<FMAG("human will need ")<<arousalToTimeEffect*h_constrT<<FMAG(" more time but robot implementation time is: ")<<tafterc<<endl;
+	cout<< "\n\n"<<FMAG("human will need ")<<arousalToTimeEffect*h_constrT<<FMAG(" more time but robot implementation time is: ")<<tafterc<<endl;
+	cout <<FMAG("H-Arous:")<<arousalToTimeEffect<< FMAG("  H-Time:")<< (int) h_constrT<<endl;
 	//release constrants from all petals that are not assigned yet..... but wait assigned petals to finish 
 	releaseConstraintsFromUnassignedgedPetals(pid, verid);
 	releaseConstraintsFromHumanPetal(pid, verid);
+
       }
-      cout << FMAG("H-Arous:")<<arousalToTimeEffect<< FMAG("  H-Time:")<< (int) h_constrT<<endl;
-      cout<<FMAG("human will need aprox ")<<arousalToTimeEffect*h_constrT<<FMAG(" more time but robot implementation time is: ")<<tafterc<<endl;
+	cout << FMAG("H-Arous:")<<arousalToTimeEffect<< FMAG("  H-Time:")<< (int) h_constrT<<endl;
+	cout<<FMAG("human will need aprox ")<<arousalToTimeEffect*h_constrT<<FMAG(" more time but robot implementation time is: ")<<tafterc<<endl;
+	sendArousalTime();
 //      if (moveon==0){
 //	cout<<"give 0 for break, 1 for moveon: ";
 //	cin>>moveon;
@@ -1633,64 +1807,67 @@ int DP_processor::getAgentWorkingAction(int agent_id){
 /*--------------------------------------------------------------------*/
 int DP_processor::simulateRun(){
 
-    time_t gstartT = time(0);
-    time_t gcurrentT = time(0);
+  int qsent=0;
 
     static int human_work_assigned=0;
 //    cout <<"human_work_assigned: "<<human_work_assigned<<endl;
-    
+
     std::cout <<"Planning is ready to start." << endl;
     std::cout << "Press:  1" <<endl;
     getchar();
 //    cout <<"\n\n\n\n\n\n\n\n\n";
+//    cout <<"petals:"<<petalNumber<<"  ";
+
+    time_t gstartT = time(0);
+    time_t gcurrentT = time(0);
     
-    cout <<"petals:"<<petalNumber<<"  ";
     ros::Rate loop_rate(5);
     
-    while (ros::ok()){
-//    while (1){
-
-      gcurrentT = time(0);
-      int d=gcurrentT-gstartT;
-      if (d>=localT+1){ // assume discrete time, increased every second
-         localT=d;
-         cout << localT << "  ";
-         cout.flush();
-	 
-
-	 max_urgency+=1.0;
-	 for (int p=0; p<petalNumber; p++){
-	   if ((petal[p].assigned<0) && (petal[p].completed<0))
-	    petal[p].urgency+=1.9;
-	 }
-
-//	 cout <<"U[4]=" << petal[4].urgency;
-//	 cout <<"   U[6]=" << petal[6].urgency<< endl;
-
+    while (ros::ok()){//    while (1){
+       if ((localT<3)&&(localT>1)/*||   (GotMenu<0)*/) {
+	    cout <<"ask memory for a menu update..............."<<endl;
+	    askMemory(1);
+	  sleep(1);// sleep 1 to avoid multiple queries
+       }
 /*
-	 if (petal[6].inplan==0){
-	   if (localT>15){
-	     petal[6].inplan=1;
-	    petal[6].urgency=max_urgency;
-	   }
-	 }
+       if ((localT==15) && (!qsent)){
+	    askMemory(2);
+	    qsent=1;
+       }
 */	 
-//	 cout<< "done[1][1]="<<petal[1].a_done[1]<<"expected time:"<< petal[1].expected_time[0][1] <<"  implementation time:"<<petal[1].implementation_time[1]<<endl;
-        //all agents are assigned a task/petal
-         for (int a=0; a<MAX_AGENTS; a++){
-//	    if (a==NAO_ID){          
-//		cout << "agent[" << a<<"].busy:"<<agentBusyState[a]<<endl;
-//	    }
-            if (agentBusyState[a]==0){
+       
+       gcurrentT = time(0);
+       int d=gcurrentT-gstartT;
+       
+       if (d>=localT+1){ // assume discrete time, increased every second  
+	 localT=d;  
+	 cout << localT << "  "; cout.flush();
+	 
+//	 cout<<"I: "<< idleT[HUMAN_ID]<< ", "<< idleT[NAO_ID]<< ", "<< idleT[JACO_ID]<<endl;
+
+
+  
+	 if (localT>5){ //robots start implementation a few secs after the receipt of the menu	 
+	   max_urgency+=1.0;
+	   for (int p=0; p<petalNumber; p++){
+	     if ((petal[p].assigned<0) && (petal[p].completed<0))
+	       petal[p].urgency+=1.9;
+	   }
+
+	    //	 cout<< "done[1][1]="<<petal[1].a_done[1]<<"expected time:"<< petal[1].expected_time[0][1] <<"  implementation time:"<<petal[1].implementation_time[1]<<endl;
+	    //all agents are assigned a task/petal
+	   for (int a=0; a<MAX_AGENTS; a++){
+	     if (agentBusyState[a]==0){
                 int pid=-1;//toDoPetal(a);
-		if (a==HUMAN_ID+7777){
+/*		if (a==HUMAN_ID+7777){
 		  if (!human_work_assigned) {
 		    human_work_assigned=1;
 		    pid=toDoPetal(a);
 		    cout << FRED("task") << pid << FRED("assigned to agent ") << a<<"\n";
 		  }
 		}
-		else if (a==NAO_ID) {         
+		
+*/		if (a==NAO_ID) {   
                   pid=toDoPetal(a);
 		  cout << FGRN("task") << pid << FGRN("assigned to agent ") << a<<"\n";
 		}
@@ -1707,9 +1884,7 @@ int DP_processor::simulateRun(){
 //		    cout << "before.. .. task" << pid << ".interupted=" << petal[pid].interupted<<"\n"; 
                     petal[pid].assigned=a;
 		    petal[pid].interupted=0;
-
 //		    cout << "task" << pid << ".interupted=" << petal[pid].interupted<<"\n";
-
 		    
 		    for (int i=0; i<MAX_PETAL_LENGTH;i++){
 		      petal[pid].action[i].assigned=-1;
@@ -1719,60 +1894,72 @@ int DP_processor::simulateRun(){
 		      petal[pid].action[i].start_time=0;
 		      petal[pid].action[i].implementation_time=0;
 		    }
-		    
                     agentMainWorkingPetal[a]=pid;
                     agentBusyState[a]=1;
-//                    cout << "to select agent action....-- \n";
-//                    getchar();
-
 		    new_agent_action(a);
 		}
                 else {
 		  agentBusyState[a]=0;
                   agentMainWorkingPetal[a]=-1;
-		  if (a==HUMAN_ID) 
+		  if (a==HUMAN_ID) {
 		    cout << FRED("no work assigned to agent ") << a << FRED("--IDLE-- ")<<"\n";
-		  else if (a==NAO_ID) 
+		    idleT[HUMAN_ID]++;
+		  }
+		  else if (a==NAO_ID) {
 		    cout << FGRN("no petal available for agent ") << a << FGRN("--IDLE-- ")<<"\n";
-		  else
+		    idleT[NAO_ID]++;
+		  }
+		  else{
 		    cout << FCYN("no petal available for agent ") << a << FCYN("--IDLE-- ")<<"\n";                    
+		    idleT[JACO_ID]++;
+		  }
                 }
 	    }
             if (agentBusyState[a]==1){ //implement a previously or just assigned petal
-//	    if (a==NAO_ID){          
-//                cout << "agent " << a << " is busy on action "<< agentMainWorkingAction[a]<< "    ";
-//	    }
 		if (agentMainWorkingAction[a]<0){
-		  cout<<"looking for action....";
+//		  cout<<"looking for action....";
                   new_agent_action(a);
 		}
+//		cout << "make action"<<endl;
                 make_agent_action(a); //updates elapsed time
+//		cout << "make action"<<endl;
                 if (checkActionCompletion(a)==1){
+//		cout << "inhere"<<endl;
+
                     if (petal_completed(a)==1){ //the completion of action may result to the completion of petal
+//		cout << "innnnhere"<<endl;
                         agentBusyState[a]=0;
                         agentMainWorkingPetal[a]=-1;
                     }
                     else{
+//		cout << "outhere"<<endl;
 //                    cout << "--agent[" << a<<"].busy:"<<agentBusyState[a]<< "\n";
                     agentMainWorkingAction[a]=-1;
+//		cout << "out"<<endl;
                     new_agent_action(a);
+//		cout << "out-out"<<endl;
+
 //                    cout << "agent[" << a<<"].busy:"<<agentBusyState[a]<< "\n";
                     }
                 }
 	    }
+	    if ((agentMainWorkingPetal[HUMAN_ID]==-1) && (agentMainWorkingPetal[NAO_ID]==-1) && (agentMainWorkingPetal[JACO_ID]==-1) ){
+	      cout <<"\n\nCooperation is succesfully completed !\n"<<endl;
+	      return 1;
+	    }
+
+
+	   }
+//                    cout <<"einai edw3"<<endl;
 	 }
-
-      }
-//      sendDaisyState();
-      ros::spinOnce();
-      loop_rate.sleep();
+//                    cout <<"einai edw4"<<endl;
+       }
+//                    cout <<"einai edw5"<<endl;
+       ros::spinOnce();
+       loop_rate.sleep();
     }
-
     return 1;
 }
-
-//prepei na einai entaxei.
-//Yparxoyn themata sto debugging giai kanoyme polles fores intervene kai interupt, alla fainetai okay.
 
 
 /*--------------------------------------------------------------------*/
@@ -1791,7 +1978,12 @@ int DP_processor::interupt(int pid, int agid){
     cout <<"Error in DP_processor::interupt(). Different agent ids!"<<endl;
     exit(0);
   }
-  
+
+  if (agentMainWorkingAction[agid]<0){
+    cout <<"Error in DP_processor::interupt(). Negative Action to interupt!"<<endl;
+    exit(0);
+  }
+
 //  petal[pid].action[1].interupted=1;
   if (petal[pid].action[agentMainWorkingAction[agid]].interupted==1){
     return 1;
@@ -2018,6 +2210,14 @@ int DP_processor::intervene(int pid, int agid){
   int curpos=agentMainWorkingAction[agid];
 
 
+  int thres=60;
+  int HumanTime2Complete=(int)getExpectedRemainingTimeForAction(HUMAN_ID, agentMainWorkingPetal[HUMAN_ID], agentMainWorkingAction[HUMAN_ID]);
+  cout <<"remaining time to complete Human action:"<<HumanTime2Complete<<" threshold is:"<<thres<<endl;
+  if (HumanTime2Complete<thres){
+    return -1;
+  }
+  
+
   //add Move2fruitshelf
   shift_actions(pid, curpos+1);// move right all the actions following the current agent action, in order to create free space
   place_action(pid, curpos+1,0); //insert in petal "pid", location "curpos", the action with id 0
@@ -2097,7 +2297,7 @@ int DP_processor::intervene(int pid, int agid){
       
     }
     //the petal is assigned to human but not compeleted yet
-    if ((petal[i].assigned==HUMAN_ID) && (petal[i].completed=-1)) {
+    if ((petal[i].assigned==HUMAN_ID) && (petal[i].completed==-1)) {
 	if (constrNum+1>=MAX_CONSTRAINTS){
 	  cout<<"DP_processor::intervene() Not enough space for new Constriants. Error!";
 	  exit(0);
@@ -2136,6 +2336,7 @@ int DP_processor::intervene(int pid, int agid){
 //It returns the edgeid leading to the next action
 int DP_processor::new_agent_action(int aid){
     int p;
+    cout<<"looking for a new action, a:"<< aid <<endl;
 //    bool test=true;
     if ((aid>=0) && (aid<MAX_AGENTS)){
       
@@ -2163,12 +2364,18 @@ int DP_processor::new_agent_action(int aid){
 		  int cnum=getActiveConstrOnVertex(p, j, aid);
 //		  cout << "constraints on ["<<p<<"].["<<j<<"]:"<<cnum<<endl;
 		  if ((cnum>0) && (!petal[p].interupted)){
-		    if (aid==HUMAN_ID)
+		    if (aid==HUMAN_ID){
 		      cout <<FRED("agent ")<<aid<<FRED("is constrained by:")<<cnum<<FRED(" constraints. To re-assign....")<<endl; 
-		    else if (aid==NAO_ID)
-		      cout <<FGRN("agent ")<<aid<<FGRN("is constrained by:")<<cnum<<FGRN(" constraints. To re-assign....")<<endl; 
-		    else
+		      //idleT[HUMAN_ID]++;
+		    }
+		    else if (aid==NAO_ID){
+		      cout <<FGRN("agent ")<<aid<<FGRN("is constrained by:")<<cnum<<FGRN(" constraints. To re-assign....")<<endl;
+		      //idleT[NAO_ID]++;
+		    }
+		    else{
 		      cout <<FCYN("agent ")<<aid<<FCYN("is constrained by:")<<cnum<<FCYN(" constraints. To re-assign....")<<endl; 
+		      //idleT[JACO_ID]++;
+		    }
 
 		    checkHumanForcedConstraintRelease(aid, p, j); //petal[p].action[j].id
 		    
@@ -2224,7 +2431,7 @@ int DP_processor::new_agent_action(int aid){
 		    //system("vlc NaoGetBreakfast.mp3 &");
 //		    sleep(4);
 		    //system("ps aux | grep -ie vlc | awk '{print \"kill -9 \" $2}' | sh -x");
-		    system("ps aux | grep -ie vlc | awk '{print \"kill -9 \" $2}' | sh -x");
+		   // system("ps aux | grep -ie vlc | awk '{print \"kill -9 \" $2}' | sh -x");
 		    sleep(1);
 		  }
 		  else{
@@ -2232,9 +2439,10 @@ int DP_processor::new_agent_action(int aid){
 		    cout<<FCYN("sending for executionK")<<endl;  
 		    //system("vlc JacoAddIgredients.mp3 &");		    
 //		    sleep(3);
-		    system("ps aux | grep -ie vlc | awk '{print \"kill -9 \" $2}' | sh -x");
+		    //system("ps aux | grep -ie vlc | awk '{print \"kill -9 \" $2}' | sh -x");
 		  }
 		  //sendMessage(aid, petal[p].action[j].name.c_str());
+		  cout<<"sending2ROS"<<endl; 
 		  sendAction2ROS(aid);
 		  
 		}
@@ -2266,7 +2474,6 @@ int DP_processor::new_agent_action(int aid){
 
 /*--------------------------------------------------------------------*/
 int DP_processor::make_agent_action(int aid){
-
   int p;
   int acnum;
       if (agentUrgentWorkingPetal[aid]<0){
@@ -2283,6 +2490,7 @@ int DP_processor::make_agent_action(int aid){
     }
 
 }
+
 
 
 /*--------------------------------------------------------------------*/
@@ -2347,6 +2555,7 @@ int DP_processor::timeOfUnAssignedActions(int ag_id, int pid){
 //It returns 1 if action is completed, 0 otherwise
 int DP_processor::checkActionCompletion(int aid){
     
+//  cout<< "checking action"<<endl;
   int p,edgenum;
     
     if (agentUrgentWorkingPetal[aid]<0){
@@ -2358,24 +2567,28 @@ int DP_processor::checkActionCompletion(int aid){
 	edgenum=agentUrgentWorkingAction[aid];
       }
   
-  
    if ((p>=0) && (edgenum>=0)){
  //        cout << "controlling action--" << agentMainWorkingAction[aid] << " time:" << petal[p].implementation_time[edgunum] <<"\n";
 //        int tt=petal[p].implementation_time[edgunum];
 	
 //		  std::cout << " isRobotDone:" << actionStatusListener->reportRobotActionStatus() << std::endl;
 
-   
-     if ((aid==JACO_ID) && (agentMainWorkingAction[NAO_ID]>=0)){
+     
+     
+     if ((aid==JACO_ID) && (agentMainWorkingAction[NAO_ID]>=0) && (agentMainWorkingPetal[NAO_ID]>=0)){
+//	  cout<< "edwwwwww"<<endl;
        	string s(petal[agentMainWorkingPetal[NAO_ID]].action[agentMainWorkingAction[NAO_ID]].name); //make a string with the name of the action
+//	  cout<< "edw1"<<endl;
+
 //	cout << s.c_str()<<endl;
        if ((agentMainWorkingPetal[JACO_ID]==petalNumber-1) &&(agentMainWorkingAction[JACO_ID]==1) && (!petal[agentMainWorkingPetal[JACO_ID]].interupted) &&
 	   (agentMainWorkingPetal[NAO_ID]==0) &&((s.find("Move2FruitShelf")!=std::string::npos) || (s.find("Wait_Filling")!=std::string::npos))){	
 	 int NAO_time2Complete=(int)getExpectedRemainingTimeForAction(NAO_ID, agentMainWorkingPetal[NAO_ID], agentMainWorkingAction[NAO_ID]);
 	 int JACO_time2ClearHand= timeOfUnAssignedActions(JACO_ID,agentMainWorkingPetal[JACO_ID]);
-	 //  cout <<"------ NAO2complete: "<<NAO_time2Complete<< "JACO2Clear: " << JACO_time2ClearHand<<endl;
+	 cout <<"------ NAO2complete: "<<NAO_time2Complete<< "JACO2Clear: " << JACO_time2ClearHand<<endl;
 
-       
+//       	  cout<< "edw2"<<endl;
+
 	 if (NAO_time2Complete-13<JACO_time2ClearHand){
 	   // cout <<"------ NAO2complete: "<<NAO_time2Complete<< "JACO2Clear: " << JACO_time2ClearHand<<endl;
 	   //cout <<"interupting JACO..."<<endl;	
@@ -2386,33 +2599,10 @@ int DP_processor::checkActionCompletion(int aid){
        }
      }
 
-     
-/*     
-      int act_ok=-1;      
-     if ((aid==JACO_ID) && (agentMainWorkingPetal[JACO_ID]==petalNumber-1) && (agentMainWorkingAction[JACO_ID]==1) && (!petal[agentMainWorkingPetal[JACO_ID]].interupted) ){
-       if (agentMainWorkingAction[NAO_ID]>=0){
-       	string s(petal[agentMainWorkingPetal[NAO_ID]].action[agentMainWorkingAction[NAO_ID]].name); //make a string with the name of the action
-	cout << s.c_str()<<endl;
-	if ((agentMainWorkingPetal[NAO_ID]==0) &&((s.find("Move2FruitShelf")!=std::string::npos) || (s.find("Wait_Filling")!=std::string::npos)))
-	  act_ok=1;
-       }
-       
-       if ((act_ok==1) || (agentMainWorkingAction[NAO_ID]<0)){      
-	 int NAO_time2Complete=(int)getExpectedRemainingTimeForAction(NAO_ID, agentMainWorkingPetal[NAO_ID], agentMainWorkingAction[NAO_ID]);
-	 int JACO_time2ClearHand= timeOfUnAssignedActions(JACO_ID,agentMainWorkingPetal[JACO_ID]);
-	   cout <<"------ NAO2complete: "<<NAO_time2Complete<< "JACO2Clear: " << JACO_time2ClearHand<<endl;
+//	  cout<< "edw3"<<endl;
+	    
+#ifdef _TestWithNoRobots    
 
-       
-	 if (NAO_time2Complete-13<JACO_time2ClearHand){
-	   cout <<"------ NAO2complete: "<<NAO_time2Complete<< "JACO2Clear: " << JACO_time2ClearHand<<endl;
-	   cout <<"interupting JACO..."<<endl;	
-	   
-	   interupt(agentMainWorkingPetal[JACO_ID], JACO_ID);
-	   sendCancel2JACO(JACO_ID);
-	 }
-       }
-     }
-  */   
 /* //this is for testing
 	    if ((aid==JACO_ID)){
 	      if (((agentMainWorkingPetal[JACO_ID]==petalNumber-1) &&(agentMainWorkingAction[JACO_ID]==1) && (petal[p].action[1].implementation_time>3) && (petal[p].interupted==0)){
@@ -2422,7 +2612,7 @@ int DP_processor::checkActionCompletion(int aid){
 	    }
 */
 
-
+/*   //this is for testing intervene
 	    if ((aid==NAO_ID)){
 //	      cout <<"*"<<agentMainWorkingAction[aid]<<"* ";
 	      if ((aid==NAO_ID) && (p==0) &&(agentMainWorkingAction[aid]==2) && (petal[p].action[2].implementation_time==20)){
@@ -2434,9 +2624,9 @@ int DP_processor::checkActionCompletion(int aid){
 		intervene(p, aid);
 	      }
 	    }
-	    
-	    
-#ifdef _TestWithNoRobots    
+*/	    
+#endif
+
 	  if (((aid==NAO_ID)&& (edgenum==0) && (petal[p].action[edgenum].implementation_time>56)) || 
 	    ((aid==NAO_ID)&& (edgenum==1) && (petal[p].action[edgenum].implementation_time>2)) ||
 	    ((aid==NAO_ID)&& (edgenum==2) && (petal[p].action[edgenum].implementation_time>44)) ||
@@ -2459,7 +2649,8 @@ int DP_processor::checkActionCompletion(int aid){
 	    ((aid==JACO_ID) &&(p!=petalNumber-1) && (edgenum==3) && (petal[p].action[edgenum].implementation_time>2))  ||
 	    ((aid==HUMAN_ID)&& (petal[p].action[edgenum].implementation_time>1) && (petal[p].action[edgenum].implementation_time+10>petal[p].action[edgenum].exp_deftime[HUMAN_ID])) )
 	  {
-#endif
+
+
 	    
 /*
 //Testing xwris to NAO
@@ -2472,15 +2663,17 @@ int DP_processor::checkActionCompletion(int aid){
 	    ((aid==HUMAN_ID)&& (petal[p].action[edgenum].implementation_time>1) && (petal[p].action[edgenum].implementation_time>petal[p].action[edgenum].exp_deftime[HUMAN_ID])) )
 	  {
 */
+
+/*
 #ifndef _TestWithNoRobots
 //OTAN paizei me COMMUNICATION me ta robot, tote einai energo to parakatw:
 	   if ((doneCurrentAction[aid]) ||
 	    ((aid==HUMAN_ID)&& (petal[p].action[edgenum].implementation_time>1) && (petal[p].action[edgenum].implementation_time+3>petal[p].action[edgenum].exp_deftime[HUMAN_ID])) )	     
 	  {
 #endif	    
+*/	    
 	      petal[p].action[edgenum].done=aid; // set which agent has completed the action	      
 	      petal[p].action[edgenum].implementation_time=time(0)-petal[p].action[edgenum].start_time; //current_time-strat_time
-	      //sendDaisyState();
 	    
 	      if (aid==HUMAN_ID) 
 		cout << FRED("action[") << p<<FRED("][") << edgenum << FRED("]") << FRED("comPleted ")<<"\n";
@@ -2490,7 +2683,6 @@ int DP_processor::checkActionCompletion(int aid){
 		cout << FCYN("action[") << p<<FCYN("][") << edgenum << FCYN("]") << FCYN("comPleted ")<<"\n";
 
 	      setCurrentActionComplete(aid);
-	      
 	      if (petal[p].to_cNum>0){ //there are constraints departing from this petal
 //		cout<<"departing constraints:" << petal[p].to_cNum << endl;
 		for (int j=0; j<petal[p].to_cNum; j++){
@@ -2519,6 +2711,7 @@ int DP_processor::petal_completed(int aid){
     int p;
     int emergency_petal=0;
   
+//    cout<<"check p completion ag:"<<aid<<agentMainWorkingPetal[aid];
 //    int p;
     if ((aid>=0) && (aid<MAX_AGENTS)){
       if (agentUrgentWorkingPetal[aid]<0){
@@ -2530,17 +2723,19 @@ int DP_processor::petal_completed(int aid){
 	  emergency_petal=1; //This is an emergency petal
       }
 
+//      cout <<"examining p:"<<p<<endl;
       for (int j=0; j<petal[p].length; j++){ //scan the whole petal
             if (petal[p].action[j].done<0){ //action is not already completed
                 return 0;
             }
       }
-        petal[p].completed=aid; //the id of the agent completed the task
+      petal[p].completed=aid; //the id of the agent completed the task
 
-//        cout << "petal[" <<p<<"] completed by agent ["<<aid<< "] in";
+/*        cout << "petal[" <<p<<"] completed by agent ["<<aid<< "] in";
         for (int j=0; j<petal[p].length; j++){ //scan the whole petal
-//            cout << petal[p].action[j].implementation_time << " + ";
+            cout << petal[p].action[j].implementation_time << " + ";
         }
+*/
 //        cout <<"moments\n";
 //	cout <<"interupted:"<<petal[p].interupted<<endl; 
 	
@@ -2571,7 +2766,7 @@ int DP_processor::petal_completed(int aid){
 */	
     }
     else{
-        cout << "DP_processor::make_agent_action() wrong Agent Id \n";
+        cout << "DP_processor::petal completed() wrong Agent Id \n";
         exit(1);
     }
     return 1;

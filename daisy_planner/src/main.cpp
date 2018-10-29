@@ -21,24 +21,9 @@ DP gDP;
 
 commandlineParameters cp;
 int DPinitialized=0;
-double humanArousal=1.0;
-double arousalToTimeEffect=1.25;
-
-//1.2 puts 2 fruits
-
-double human2target=0.0;
-double robot2target=0.0;
-
-
-
 
 
 using namespace std;
-//using namespace dpIO;
-//#include <matplotpp/matplotpp.h>
-
-//#include "matplotlibcpp.h"
-//namespace plt = matplotlibcpp;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 

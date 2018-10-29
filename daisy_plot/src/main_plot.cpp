@@ -80,6 +80,7 @@ H dynatothta ypologismoy eleyteroy xronoy (free time).
 #include <sys/time.h> //FD_SET, FD_ISSET, FD_ZERO macros 
 #include <boost/concept_check.hpp>
 
+int times=0;
 
 //commandlineParameters cp;
 int DPinitialized=0;
@@ -95,7 +96,7 @@ double robot2target=0.0;
 using namespace std;
 
 
-#define _FullReDraw
+//#define _FullReDraw
 
 
 
@@ -129,7 +130,7 @@ struct ActionData
 struct PetalData
 {
    int id; //to be deleted
-
+   string name;
    int assigned;  //id of the assigned agent
    int completed; // if not completed:-1, if completed : the id of the agent that did the job
    int interupted; //0 if not interupted, 1 if interupted
@@ -141,15 +142,227 @@ struct PetalData
 
 
 struct PetalData petal[MaxPetals];
+struct PetalData prev_petal[MaxPetals];
 int petalNumber=-1;
 
-int locked=1;
 
-  Gnuplot gp;
+int hp_exp;
+int hp_imp;
+int naop_exp;
+int naop_imp;
+int jacop_exp;
+int jacop_imp;
+int naot2deliver;
+int humant2complete;
+int humanfeels;
+float humanarousal; 
 
 
 
+int f_locked=0;
+
+//Gnuplot gp;
+std::stringstream sc; //this will concatenate the commands to be sent to gnuplot
+
+Gnuplot *gpp;
+
+
+time_t receiveT = time(0);
+time_t gcurrentT = time(0);
+
+
+
+//----------------------------------------------------------------
+/*
+void drawExpTimes(){
+
+#ifdef _FullReDraw
+//     gp<< "clear\n";
+        gp<< "unset multiplot\n";
+	sleep(0.3);
+       gp<< "set multiplot\n";
+#endif
+  vector<double> x,y;  
+
+  float xStart=0.0;
+  float xStep=1.0;
+  float xBigStep=3.0;
+  float xpos;
+       
+  xpos=xStart;
+  x.clear();
+  x.push_back(xpos);
+  x.push_back(xpos);
+  y.clear();
+  y.push_back(0.0);
+  y.push_back(hp_exp);
+  gnuLine2(x, y, 70);
+ 
+  xpos=xpos+xStep;
+  x.clear();
+  x.push_back(xpos);
+  x.push_back(xpos);
+  y.clear();
+  y.push_back(0.0);
+  y.push_back(hp_imp);
+  gnuLine2(x, y, 70);
   
+  cout <<hp_exp<<"  "<<hp_imp<<endl;
+
+#ifdef _FullReDraw
+	    gp.flush();
+#endif
+}
+*/
+ 
+ 
+//----------------------------------------------------------------
+
+void init_prev()
+{
+  for (int k=0; k<MaxPetals; k++){
+      prev_petal[k].assigned=-1;
+      prev_petal[k].completed=-1;
+      prev_petal[k].interupted=-1;
+      prev_petal[k].length=-1;
+      prev_petal[k].inplan=-1;
+
+      for (int m=0; m<MAX_PETAL_LENGTH; m++){
+          prev_petal[k].action[m].done=-1;
+          prev_petal[k].action[m].assigned=-1;
+          prev_petal[k].action[m].blocked=-1;
+          prev_petal[k].action[m].interupted=-1;
+      }
+  }
+}
+
+//----------------------------------------------------------------
+
+void init_gpp(){
+  
+  
+//    *gpp<<"set terminal wxt size 1000,660\n";
+//    *gpp<<"set terminal wxt size 1200,750\n";
+    *gpp<<"set terminal wxt size 1600,1000\n";
+    
+#ifndef _FullReDraw
+    (*gpp)<< "set multiplot\n";
+#endif
+    
+    *gpp << "set xrange [-4.5:6.5]\n";
+    *gpp << "set yrange [-5.5:5.5]\n";
+    *gpp<< "set size 1,1\n";
+    *gpp<< "set origin 0,0\n";
+
+    //blue:3 cyan:5, orange:8 black:7
+    //darkmagenta:8B008B
+
+    
+    *gpp<<"set style arrow 11 head empty size screen 0.03,15,135 ls 2 lw 4 lc 13\n"; //magenta empty
+    *gpp<<"set style arrow 12 head filled size screen 0.03,15,135 ls 2 lw 4 lc 13\n"; //magenta filled
+
+    *gpp<<"set style arrow 21 head empty size screen 0.03,15,135 ls 2 lw 4 lc 2\n"; //green empty
+    *gpp<<"set style arrow 22 head filled size screen 0.03,15,135 ls 2 lw 4 lc 2\n"; //green filled
+    
+    *gpp<<"set style arrow 31 head empty size screen 0.03,15,135 ls 2 lw 4 lc 3\n"; //blue empty
+    *gpp<<"set style arrow 32 head filled size screen 0.03,15,135 ls 2 lw 4 lc 3\n"; //blue filled
+
+    *gpp<<"set style arrow 41 head empty size screen 0.03,15,135 ls 2 lw 4 lc 1\n"; //red empty
+    *gpp<<"set style arrow 42 head filled size screen 0.03,15,135 ls 2 lw 4 lc 1\n"; //red filled
+    
+
+    *gpp<<"set style arrow 51 head empty size screen 0.03,15,135 ls 2 lw 4 lc 7 \n"; //black
+    *gpp<<"set style arrow 52 head filled size screen 0.03,15,135 ls 2 lw 4 lc 7 \n"; //black
+
+    *gpp<<"set style arrow 61 head empty size screen 0.03,15,135 ls 2 lw 4 lc rgb '#7C7CDE' \n"; //gray-blue
+    *gpp<<"set style arrow 62 head filled size screen 0.03,15,135 ls 2 lw 4 lc rgb '#7C7CDE' \n"; //gray-blue
+
+    *gpp<<"set style arrow 70 heads size screen 0.008,90 ls 2 lw 5 lc rgb '#7C7CDE' \n"; //black
+
+    
+    /*    
+    gp<<"set style arrow 1 head filled size screen 0.025,30,45 ls 1\n";
+    gp<<"set style arrow 2 head nofilled size screen 0.03,15 ls 2\n";
+    gp<<"set style arrow 3 head filled size screen 0.03,15,45 ls 1\n";
+    gp<<"set style arrow 4 head filled size screen 0.03,15 ls 2\n";
+    gp<<"set style arrow 5 heads noborder size screen 0.03,15,135 ls 1\n";
+    gp<<"set style arrow 6 head empty size screen 0.03,15,135 ls 2 lc 3\n";
+    gp<<"set style arrow 7 head filled size screen 0.03,15,135 ls 2\n";
+    gp<<"set style arrow 8 nohead ls 1\n";
+    gp<<"set style arrow 9 heads size screen 0.008,90 ls 2\n";
+*/    
+    
+    *gpp<< "set style line 1 lt 1 lw 1 lc 16  \n"; //black 
+
+    *gpp<< "set style line 31 lt 1 lw 1 lc 3  \n"; //blue 
+    *gpp<< "set style line 33 lt 1 lw 3 lc 3  \n";
+    *gpp<< "set style line 36 lt -1 lw 6 lc 3  \n";
+
+    *gpp<< "set style line 21 lt 2 lw 1 lc 2  \n"; //green
+    *gpp<< "set style line 23 lt 1 lw 3 lc 2  \n";   
+    *gpp<< "set style line 26 lt 2 lw 6 lc 2  \n";
+   
+    *gpp<< "set style line 11 lt 3 lw 1 lc 13  \n"; //red or magenta
+    *gpp<< "set style line 13 lt 1 lw 3 lc 13  \n";
+    *gpp<< "set style line 16 lt 3 lw 6 lc 13  \n";
+
+
+	sc << "set label \"Human\" at 5,4.5 font \"Arial,24\" tc lt 31; " <<  "set label \"NAO\" at 5,4.0 font \"Arial,24\" tc lt 11; " << " set label \"JACO\" at 5,3.5 font \"Arial,24\" tc lt 21 ;\n";
+	*gpp << sc.str();		
+	sc.clear();
+
+	sc << "set label \""<< petal[0].name.c_str() <<"\" at 2.5,-1.0 font \"Arial,20\" tc lt 21  \n"; 
+	sc << "set label \""<< petal[1].name.c_str() <<"\" at 2,3.0 font \"Arial,20\" tc lt 21  \n"; 
+	sc << "set label \""<< petal[2].name.c_str() <<"\" at -1.5,4.5 font \"Arial,20\" tc lt 21  \n"; 
+	sc << "set label \""<< petal[3].name.c_str() <<"\" at -3.0,3.0 font \"Arial,20\" tc lt 21  \n"; 
+	sc << "set label \""<< petal[4].name.c_str() <<"\" at -3.5,-3.5 font \"Arial,20\" tc lt 21  \n"; 
+	sc << "set label \""<< petal[5].name.c_str() <<"\" at -2.4,-4.0 font \"Arial,20\" tc lt 21  \n"; 
+	sc << "set label \""<< petal[6].name.c_str() <<"\" at 1.8,-4.5 font \"Arial,20\" tc lt 21  \n"; 
+	*gpp << sc.str();
+	sc.clear();
+    
+}
+
+
+//----------------------------------------------------------------
+
+void update_prev(int pet, int act)
+{
+  int k=pet;
+  int m=act;
+  
+      prev_petal[k].assigned=petal[k].assigned;
+      prev_petal[k].completed=petal[k].completed;
+      prev_petal[k].interupted=petal[k].interupted;
+      prev_petal[k].length=petal[k].length;
+      prev_petal[k].inplan=petal[k].inplan;
+
+      prev_petal[k].action[m].done=petal[k].action[m].done;
+      prev_petal[k].action[m].assigned=petal[k].action[m].assigned;
+      prev_petal[k].action[m].blocked=petal[k].action[m].blocked;
+      prev_petal[k].action[m].interupted=petal[k].action[m].interupted;
+}
+
+//----------------------------------------------------------------
+
+int prev_different(int pet, int act)
+{
+  int k=pet;
+  int m=act;
+  
+/*      if ((prev_petal[k].assigned!=petal[k].assigned) ||  (prev_petal[k].completed!=petal[k].completed) || (prev_petal[k].interupted!=petal[k].interupted) ||
+	  (prev_petal[k].length!=petal[k].length) || (prev_petal[k].inplan=petal[k].inplan)){
+	return 1;
+      }
+*/
+      if ((prev_petal[k].action[m].done!=petal[k].action[m].done) || (prev_petal[k].action[m].assigned!=petal[k].action[m].assigned) || 
+	  (prev_petal[k].action[m].blocked!=petal[k].action[m].blocked) || (prev_petal[k].action[m].interupted!=petal[k].action[m].interupted)){
+	return 1;
+      }
+
+      return 0;
+}
+
   
   
 //---------------------------------------------------------------
@@ -168,7 +381,11 @@ void gnuLine2(vector<double> x,   vector<double> y,  int astyle){
             y[1]-y[0]
         ) );
   
-  gp << "plot "<< gp.file1d(data)<<" using 1:2:3:4 with vectors arrowstyle "<<astyle<<" notitle  \n ";   
+//  *gpp << "plot "<< *gpp.file1d(data)<<" using 1:2:3:4 with vectors arrowstyle "<<astyle<<" notitle  \n ";   
+
+  (*gpp) << "plot "<< (*gpp).file1d(data)<<" using 1:2:3:4 with vectors arrowstyle "<<astyle<<" notitle  \n ";   
+  
+//  sc << "plot "<< gp.file1d(data)<<" using 1:2:3:4 with vectors arrowstyle "<<astyle<<" notitle ;  ";   
 
 //    gp.flush();
 
@@ -178,21 +395,59 @@ void gnuLine2(vector<double> x,   vector<double> y,  int astyle){
 //--------------------------------------------------
 void drawPetals(){
 
-    double v=M_PI/180.0; 
-
 //    cout <<"p: "<< petalNumber;
 
-    std::vector<boost::tuple<double, double, double, double> > pts_A;
+//    std::vector<boost::tuple<double, double, double, double> > pts_A;
 
+     gcurrentT = time(0);
+
+       int d=gcurrentT-receiveT;
+
+//       if (d>=1){
+//       }
+cout <<"d:"<<d;
+       if (d<2){
+	 return;
+       }
+
+    double v=M_PI/180.0; 
+    f_locked=1;
+    receiveT = time(0);
+
+       
 #ifdef _FullReDraw
-//     gp<< "clear\n";
-        gp<< "unset multiplot\n";
-	sleep(0.3);
-       gp<< "set multiplot\n";
+//     *gpp<< "clear\n";
+        *gpp<< "unset multiplot\n";
+	sleep(0.1);
+       *gpp<< "set multiplot\n";
 #endif
-     
 
+       if (times==1){
+
+      delete gpp;
+      system("pkill -x gnuplot");
+      sleep(0.1);
+      gpp = new Gnuplot();
+      init_gpp();
+	 
+
+      *gpp<< "unset multiplot\n";
+      init_prev();
+      *gpp<< "set multiplot\n";
+//	  *gpp<< "clear\n";
+//	   *gpp.clearTmpfiles();
+	  times=0;
+	  cout <<"\n\n\nreset\n\n"<<endl;
+       }
+       
+    int draw_flag=1;
      
+/*    *gpp.clearTmpfiles();
+    *gpp.close();
+    *gpp.open();
+    *gpp.open();
+  */  
+    
     int pnum=petalNumber;
 	int circle_seg=360/(pnum);
 	double tx, ty;
@@ -203,18 +458,12 @@ void drawPetals(){
 	
 	
 	for (int j=0; j<pnum; j++){
-//	for (int j=0; j<1; j++){
-//          cout << petal[j].interupted<<"  "<<endl;
-	  
-  
+ //         cout << "int"<<j<<":"<<petal[j].interupted<<"  ";
+	   
 	  if (petal[j].inplan==0){
 		  //cout <<"petal"<<j<<" is out of plan*********"<<endl;
 		  continue;
 	  }
-		
-	  //if (j==5)
-	  //  cout << petal[j].interupted<<"  "<<endl;
-	
 	float si,co;
 	int angle;
 
@@ -244,6 +493,16 @@ void drawPetals(){
 
 //		for (int i=0; i<3; i++){
 		for (int i=0; i<len; i++){
+		  
+		  if (prev_different(j, i)==1){
+		    draw_flag=1;
+		    update_prev(j, i);
+		  }
+		  else{
+		    //cout <<"same"<<j<<"."<<i<<endl;
+		    draw_flag=0;		    
+		  }
+		  
 		//  int angle=j*circle_seg;
 			//generate coordinates of edges linked on a petal-like drawing	
 		  if (i<len-1){
@@ -291,145 +550,71 @@ void drawPetals(){
 //		      cout<<"      p"<<j<<".a"<<i-1<<" done:"<<petal[j].action[i-1].done<<" assigned:"<<petal[j].action[i-1].assigned<<endl;
 		  }
 //		  cout<<"drawing the lines"<<endl;	
-		  if ( ((petal[j].action[i].done==1) ) || ((petal[j].action[i].done==1) && (i==len-1)) ){
+		  if ( ((petal[j].action[i].done==1) ) || ((petal[j].action[i].done==1) && (i==len-1) && (draw_flag==1)) ){
 //		    cout << "aa"<<endl;
-//				myLine(x,y, len, i, 3, "g");
-				gnuLine2(x, y, 22);
+		    
+		    gnuLine2(x, y, 22);
 
 		  }
-		  else if ( ((petal[j].action[i].done==2) ) || ((petal[j].action[i].done==2) && (i==len-1))) {
+		  else if ( ((petal[j].action[i].done==2) ) || ((petal[j].action[i].done==2) && (i==len-1) && (draw_flag==1))) {
 //		    cout << "bb"<<endl;
-//				myLine(x,y, len, i, 3, "c");
-				gnuLine2(x, y, 32);
+		    gnuLine2(x, y, 32);
 		  }						
-		  else if ( ((petal[j].action[i].done==0) ) || ((petal[j].action[i].done==0) && (i==len-1))) {
+		  else if ( ((petal[j].action[i].done==0) ) || ((petal[j].action[i].done==0) && (i==len-1) && (draw_flag==1))) {
 //		    cout << "cc"<<endl;
-//				myLine(x,y, len, i, 3, "m");
-				gnuLine2(x, y, 12);
+		    gnuLine2(x, y, 12);
 		  }						
-		  else if ((petal[j].action[i].assigned==1)){
+		  else if ((petal[j].action[i].assigned==1) && (draw_flag==1)){
 //		    cout << "dd"<<endl;
-//				myLine(x,y, len, i, 1, "g");
-				gnuLine2(x, y, 21);
+		    gnuLine2(x, y, 21);
 		  }
-		  else if ((petal[j].action[i].assigned==2)){
-//				myLine(x,y, len, i, 1, "c");
-				gnuLine2(x, y, 31);
+		  else if ((petal[j].action[i].assigned==2) && (draw_flag==1)){
+		    gnuLine2(x, y, 31);
 		  }
-		  else if ((petal[j].action[i].assigned==0)){
-//		    cout << "ff"<<endl;
-//				myLine(x,y, len, i, 1, "m");
-				gnuLine2(x, y, 11);
+		  else if ((petal[j].action[i].assigned==0) && (draw_flag==1)){
+		    gnuLine2(x, y, 11);
 				
 		  }
-		  else if (petal[j].action[i].done<0){ //done regards the vetex at the end of the edge
+		  else if ((petal[j].action[i].done<0) && (draw_flag==1)){ //done regards the vetex at the end of the edge
 //		    cout << "gg"<<endl;
-//				myLine(x,y, len, i, 1, "k");
-				gnuLine2(x, y, 51); ////ayto einai lathos
+		    gnuLine2(x, y, 51); 
+		  }
+		  else if ((petal[j].interupted==1) && (draw_flag==1)){ 
+//		    cout << "gg"<<endl;
+		    gnuLine2(x, y, 62);
+		  }
+		  if ((petal[j].action[i].blocked==1)  && (draw_flag==1)){		
+		    *gpp << "plot \"<echo '"<<x.at(0)<<" "<<y.at(0)<<"'\"   with points lc 3 lw 4 pt 6 notitle  \n ";
+		    (*gpp).flush();
+
 		  }
 
-/*
-		if ((petal[j].action[i].blocked==1)){
-			  vector<double> tempx,tempy;  
-			  tempx.clear();
-			  tempx.push_back(x.at(0));
-			  tempy.clear();
-			  tempy.push_back(y.at(0));
-
-			  plot(tempx,tempy); set("k"); set(6); set("*"); //this line only plots stars
-		}
-*/
 		  if ((x.size()>1) && (y.size()>1)){
 			x.erase(x.begin());
 			y.erase(y.begin());
 		  }
+//		*gpp << sc.str();		
+//		*gpp.flush();
+//		sc.clear();
+		  
 		}  
 		x.clear();
 		y.clear();
-
-
-		tx=tx*1.1;
-		ty=ty*1.1;
-
-		if (tx<0){
-		  tx-=0.3;
-		}
-		if (ty<0){
-		  ty-=0.3;
-		}
-		if (tx<mintx)
-		  mintx=tx;
-		if (ty<minty)
-		  minty=ty;
-		if (tx>maxtx)
-		  maxtx=tx;
-		if (ty>maxty)
-		  maxty=ty;
-		
-//		string name ("P");
-//		name += std::to_string(j);         // c-string
-//		text(tx, ty,name);// set(14);		v
-
-//		string name;
-//		if (j==0){
-//		  name="BRING_BREAKFAST_";
-//		}
-//		else if (j==1){
-//		  name="CLEAN_TABLE_";
-//		}
-//		else {
-//		  name=gDP.xproc->petal[j].al_actionName[0]+"_";
-//		}
-//		name += std::to_string(j);         // c-string
-//		if (tx>1.5) tx=1.1;
-//		if (ty>2.0) ty=2.8;
-//		if (ty<-2.0) ty=-2.85;
-//		text(tx, ty,name);// set(14);		v
 		
 	}
 	
-//	gp << " \n";
-//    gp.flush(); 11
-//    gp<< "unset multiplot\n";
-//    sleep(0.5);
 
-	
-	
-	//------------------- this is for show active constraints
-	/*
-	string name ("P");
-	int mm=0;
-	for (int j=0; j<pnum; j++){
-		//gDP.proc.petal[j].length;
-		//cout<<"\nconstrains vertices:";
-		for (int k=0; k<gDP.xproc->petal[j].to_cNum; k++){
-		    std::ostringstream oss;
-		    oss.clear();
-		    //oss <<"C"<<gDP.proc.petal[j].pcToL[k]<<": ("<<gDP.proc.constr[gDP.proc.petal[j].pcToL[k]].fvertex  <<"->"<< gDP.proc.constr[gDP.proc.petal[j].pcToL[k]].tvertex <<") ";
-		    oss <<"C"<<gDP.xproc->petal[j].pcToL[k]<<": ("<<gDP.xproc->constr[gDP.xproc->petal[j].pcToL[k]].fpetal  <<"->"<< gDP.xproc->constr[gDP.xproc->petal[j].pcToL[k]].tpetal <<") ";
-		    name.clear();
-		    name = oss.str();
-		    text(2.0, 2.7-0.25*mm,name);//set("r");// set(14);
-		    if (gDP.xproc->constr[gDP.xproc->petal[j].pcToL[k]].stateOn){
-		      text(1.6, 2.7-0.25*mm,"+++");//set("r");// set(14);
-		    }
-		    else{
-		      text(2.95, 2.7-0.25*mm,"---");set("r");// set(14);
-		    }
-		    mm++;
-		}
-	  
-	}	
-	*/
-//	axis(mintx-0.3,maxtx+1.8,minty-0.5,maxty+0.5);
-//	axis(-4,4,-4,4);
+	times++;
+	(*gpp).flush();
 
 #ifdef _FullReDraw
-	    gp.flush();
-	//        gp<< "unset multiplot\n";
-
+	    *gpp.flush();
 #endif
+
+	    f_locked=0;
+
 }
+
 
 
 //----------------------------------------------------------------
@@ -437,7 +622,6 @@ void drawPetals(){
 
 void GRAPHchatterCallback(const timestorm_msg::Daisy_graph::ConstPtr& msg)
 {
-  locked=1;
 //  ROS_INFO("I heard: %d %d \n", msg->pet[0].p_id,  msg->pet[1].p_id);
 
 
@@ -448,6 +632,7 @@ void GRAPHchatterCallback(const timestorm_msg::Daisy_graph::ConstPtr& msg)
   }
 
   for (int k=0; k<petalNumber; k++){
+      petal[k].name=msg->pet[k].p_name;
       petal[k].id=msg->pet[k].p_id;
       petal[k].assigned=msg->pet[k].p_assigned;
       petal[k].completed=msg->pet[k].p_completed;
@@ -471,87 +656,34 @@ void GRAPHchatterCallback(const timestorm_msg::Daisy_graph::ConstPtr& msg)
           petal[k].action[m].param=msg->pet[k].act[m].a_param;
       }
   }
-  locked=0;
+
+  
+  
+  //  cout <<msg->naop_name.c_str()<<endl;
+//  cout <<msg->jacop_name.c_str()<<endl;
+  
+//    cout <<msg->hp_exp<<"  "<<msg->hp_imp<<endl;
 
   cout << "new plan state received....      "<< std::flush;
   
-  drawPetals();
-  
-
+  if (!f_locked)
+    drawPetals();
 }
 
+//----------------------------------------------------------------
+//----------------------------------------------------------------
 
-//----------------------------------------------------------------
-//----------------------------------------------------------------
 
 int main(int argc, char **argv) {
 
-	
-//    graph_display();
-//    plt::show();
-
-//  	mp.gnuDraw();
-
-
-    
-//    gp<< "set multiplot\n";
-    gp << "set xrange [-4.5:6.5]\n";
-    gp << "set yrange [-5.5:5.5]\n";
-    gp<< "set size 1,1\n";
-    gp<< "set origin 0,0\n";
-
-    
-    //blue:3 cyan:5, 
-
-
-    gp<<"set style arrow 11 head empty size screen 0.03,15,135 ls 2 lw 2 lc 13\n"; //magenta empty
-    gp<<"set style arrow 12 head filled size screen 0.03,15,135 ls 2 lw 2 lc 13\n"; //magenta filled
-
-    gp<<"set style arrow 21 head empty size screen 0.03,15,135 ls 2 lw 2 lc 2\n"; //green empty
-    gp<<"set style arrow 22 head filled size screen 0.03,15,135 ls 2 lw 2 lc 2\n"; //green filled
-    
-    gp<<"set style arrow 31 head empty size screen 0.03,15,135 ls 2 lw 2 lc 3\n"; //blue empty
-    gp<<"set style arrow 32 head filled size screen 0.03,15,135 ls 2 lw 2 lc 3\n"; //blue filled
-
-    gp<<"set style arrow 41 head empty size screen 0.03,15,135 ls 2 lw 2 lc 1\n"; //red empty
-    gp<<"set style arrow 42 head filled size screen 0.03,15,135 ls 2 lw 2 lc 1\n"; //red filled
-    
-
-    gp<<"set style arrow 51 head empty size screen 0.03,15,135 ls 2 lw 2 lc 7 \n"; //black
-    gp<<"set style arrow 52 head filled size screen 0.03,15,135 ls 2 lw 2 lc 7 \n"; //black
-
-    gp<<"set style arrow 61 head empty size screen 0.03,15,135 ls 2 lw 2 lc 8 \n"; //black
-    gp<<"set style arrow 62 head filled size screen 0.03,15,135 ls 2 lw 2 lc 8 \n"; //black
-
-    
-/*    
-    gp<<"set style arrow 1 head filled size screen 0.025,30,45 ls 1\n";
-    gp<<"set style arrow 2 head nofilled size screen 0.03,15 ls 2\n";
-    gp<<"set style arrow 3 head filled size screen 0.03,15,45 ls 1\n";
-    gp<<"set style arrow 4 head filled size screen 0.03,15 ls 2\n";
-    gp<<"set style arrow 5 heads noborder size screen 0.03,15,135 ls 1\n";
-    gp<<"set style arrow 6 head empty size screen 0.03,15,135 ls 2 lc 3\n";
-    gp<<"set style arrow 7 head filled size screen 0.03,15,135 ls 2\n";
-    gp<<"set style arrow 8 nohead ls 1\n";
-    gp<<"set style arrow 9 heads size screen 0.008,90 ls 2\n";
-*/    
-    
-    gp<< "set style line 1 lt 1 lw 1 lc 16  \n"; //black 
-
-    gp<< "set style line 31 lt 1 lw 1 lc 3  \n"; //blue 
-    gp<< "set style line 33 lt 1 lw 3 lc 3  \n";
-    gp<< "set style line 36 lt -1 lw 6 lc 3  \n";
-
-    gp<< "set style line 21 lt 2 lw 1 lc 2  \n"; //green
-    gp<< "set style line 23 lt 1 lw 3 lc 2  \n";   
-    gp<< "set style line 26 lt 2 lw 6 lc 2  \n";
-   
-    gp<< "set style line 11 lt 3 lw 1 lc 13  \n"; //red or magenta
-    gp<< "set style line 13 lt 1 lw 3 lc 13  \n";
-    gp<< "set style line 16 lt 3 lw 6 lc 13  \n";
-    
-
   
+   gpp = new Gnuplot();
+
+   init_gpp();
+       
+    init_prev();
+
+    
     ros::init(argc, argv, "timestorm_ps_node");
     ros::NodeHandle n;
 
@@ -559,12 +691,7 @@ int main(int argc, char **argv) {
 
     ros::Rate loop_rate(0.3);
 
-    ros::spin();
-
-
-	    sleep(999999999);
-//    gp<< "unset multiplot\n";
-	
+    ros::spin();	
 
 }
 

@@ -1,0 +1,84 @@
+#!/usr/bin/env python
+import rospy
+import time
+import std_msgs.msg
+
+from telephoneDataSoc import TelephoneDataSoc
+#from rocon_std_msgs.msg import StringArray
+#from telephony.msg import StringArray
+#import telephony_msg
+from telephone_data.msg import telephony_msg
+
+prev_time = None
+descr_str=['type','number','contace name','canceled','duration']
+pub_topic = "telephony_info"
+telephoneSoc = None
+
+def shutDownReq():
+    if telephoneSoc is not None:
+        rospy.loginfo("Closing socker...")
+        telephoneSoc.close()
+
+rospy.init_node('telephone_data', anonymous=True,disable_signals=False)
+pub = rospy.Publisher(pub_topic, telephony_msg, queue_size=10)
+local_phone = rospy.get_param('~local_phone','-')
+try:
+    soc_file = rospy.get_param('~socket_path')
+except KeyError:
+    rospy.logerr("Sockets path did not set.")
+    rospy.logerr("Please set the 'socket_path' parameter.")
+    quit()
+    #rospy.signal_shutdown("Sockets path did not set.")
+    
+    
+rospy.on_shutdown(shutDownReq)
+rospy.loginfo("Starting telephone data...")
+telephoneSoc = TelephoneDataSoc(soc_file)
+
+telephoneSoc.connect()
+#if not telephoneSoc.connect():
+    #quit()
+
+def publish_data(event_data):
+    global pub
+    msg = telephony_msg()
+    msg.header = std_msgs.msg.Header()
+    msg.header.stamp = rospy.Time.now()
+    msg.event = event_data[0]
+    msg.number = event_data[1]
+    msg.duration = event_data[-1]
+    msg.local_phone = local_phone
+    pub.publish(msg)
+    
+def printEvent(event_data):
+    #rospy.loginfo("New telephone event")
+    for i in range(len(descr_str)):    
+        rospy.loginfo("%s: %s " % (descr_str[i], event_data[i]))
+
+#rospy.sleep(10)
+#e = ['esdf','643664',2342]
+#publish_data(e)
+r = rospy.Rate(0.5)
+while not rospy.is_shutdown():
+    if not telephoneSoc.isConnected():
+        r.sleep()
+        telephoneSoc.connect()
+    else:
+        event_data = telephoneSoc.readEvent()
+        if event_data is not None:
+            rospy.loginfo("New event")
+            duration = 0
+            if event_data[3] == 'true':
+                event_data[0] = event_data[0] + '_ended'
+                if prev_time is not None:
+                    time = rospy.get_time()
+                    duration = time - prev_time
+                    prev_time = None
+            else:
+                prev_time = rospy.get_time()
+                
+            event_data.append(duration)
+            printEvent(event_data)
+            publish_data(event_data)
+rospy.spin()
+    

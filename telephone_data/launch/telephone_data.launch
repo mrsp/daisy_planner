@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<launch>    
+    <node name="telephone_data" pkg="telephone_data" type="main" output="screen" > 
+	<param name="local_phone" value="not_an_iphone"/>
+        <param name="socket_path" value="/tmp/telephone_data"/>
+    </node>
+
+</launch> 

@@ -26,9 +26,12 @@
 #include <timestorm_msg/Fruit_id.h>
 #include <timestorm_msg/Daisy.h>
 #include <timestorm_msg/Robot.h>
+#include <timestorm_msg/Query.h>
 #include <timestorm_msg/Action.h>
 #include <timestorm_msg/Petal.h>
+#include <timestorm_msg/Arousal_time.h>
 #include <timestorm_msg/Daisy_graph.h>
+#include <timestorm_msg/telephony_msg.h>
 
 #include <std_msgs/String.h>
 
@@ -130,14 +133,8 @@ struct PetalInfo
 //   vstring v;
    
    struct ActionInfo action[MAX_PETAL_LENGTH+1];
-   /*
-   vstring al_actionName;
-   vstring al_primaryObjectName;
-   vstring al_secondaryObjectName;
-   vstring al_handName;
-   vstring al_robotLocation;
-   vstring al_objectLocation;
-   */
+
+   string name;
    int length;
    int assigned;  //id of the assigned agent
    int completed; // if not completed:-1, if completed : the id of the agent that did the job
@@ -199,26 +196,31 @@ public:
     struct PriorityConstraint constr[MAX_CONSTRAINTS]; //forward priority constraints
     int constrNum;
 
+    void sendArousalTime();
+    void setMenu();
     
-    
-  ros::NodeHandle *n;
-  ros::Publisher *NAO_pub;
-  ros::Subscriber *NAO_sub;
-  ros::Publisher *JACO_pub;
-  ros::Subscriber *JACO_sub;
-  ros::Publisher *HUMAN_pub;
-  ros::Subscriber *HUMAN_sub;
-  ros::Publisher *HUMAN_Perc_pub;
-  ros::Subscriber *HUMAN_Perc_sub;
-
-  ros::Publisher *MENU_pub;
-  ros::Subscriber *MENU_sub;
-
-  ros::Publisher *GRAPH_pub;
-
   
-//  ros::Publisher DP_pub;
-//  ros::Subscriber DP_sub;
+  ros::NodeHandle *n;
+  ros::Publisher NAO_pub;
+  ros::Publisher JACO_pub;
+  ros::Publisher HUMAN_pub;
+  ros::Publisher GRAPH_pub;
+  ros::Publisher ARTIME_pub;
+  ros::Publisher MEMQUERY_pub;  
+  
+  ros::Subscriber MEMRESPONSE_sub;
+  ros::Subscriber JACO_sub;
+  ros::Subscriber NAO_sub;
+  ros::Subscriber HUMAN_Perc_sub;
+  ros::Subscriber TEL_sub;
+
+    void NAOchatterCallback(const timestorm_msg::Robot::ConstPtr& msg);
+    void JACOchatterCallback(const timestorm_msg::Robot::ConstPtr& msg);
+    void TelephonechatterCallback(const timestorm_msg::telephony_msg::ConstPtr& msg);
+    void HUMAN_Perc_chatterCallback(const timestorm_msg::Time::ConstPtr& msg);
+    void RESPONSEchatterCallback(const timestorm_msg::Fruit_id::ConstPtr& msg);
+
+
 
     int intervene(int pid, int agid);
     
@@ -226,6 +228,8 @@ public:
     void sendAction2ROS(int ag_id);
     void sendDaisyState();
     void sendCancel2JACO(int ag_id);
+
+    void askMemory(int mtype);
 
     
     int agentBusyState[MAX_AGENTS]; // it referes to the petal level, not action-level.  Binary values: 0 or 1
@@ -293,7 +297,7 @@ private:
     void releaseConstraintsFromHumanPetal(int pid, int verid);
 
     void sendMessage(int ag_id, const char* mes);
-    void sendMenu();
+
 
     
     float getAgentConstrTimeOnPetal(int pid, int verid, int other_aid);
